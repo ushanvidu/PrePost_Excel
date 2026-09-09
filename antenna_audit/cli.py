@@ -46,6 +46,7 @@ def _resolve_post_photos(args: argparse.Namespace, site: str):
         return None
 
     from .classify.bands import assign_site, to_post_photos
+    from .classify.overrides import OverrideStore
     from .classify.predict import load_model
     from .classify.store import ConfirmationStore
     from .classify.train import MODEL_FILENAME
@@ -58,7 +59,13 @@ def _resolve_post_photos(args: argparse.Namespace, site: str):
         return None
 
     store = ConfirmationStore(model_dir)
-    assignments = assign_site(site_dir, load_model(model_dir), store)
+    overrides = OverrideStore(model_dir)
+    assignments = assign_site(site_dir, load_model(model_dir), store,
+                              overrides=overrides)
+    manual = sum(1 for a in assignments.values()
+                 for s in a.slots.values() if s.manual)
+    if manual:
+        print(f"  {site:<10} {manual} Post slot(s) use a photo you uploaded")
     undecided = sum(len(a.needs_decision) for a in assignments.values())
     if undecided:
         print(f"  {site:<10} {undecided} Post slot(s) need your decision "

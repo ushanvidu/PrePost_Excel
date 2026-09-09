@@ -18,6 +18,7 @@ clicks are not overhead; they are the training signal.
 from __future__ import annotations
 
 import io
+import tempfile
 from pathlib import Path
 
 from flask import Blueprint, jsonify, render_template, request, send_file
@@ -27,6 +28,7 @@ from ..catalog import heading_for
 from ..classify import labels
 from ..classify.bands import ALL_ROWS, assign_site
 from ..classify.predict import load_model
+from ..classify.overrides import OverrideStore
 from ..classify.store import ConfirmationStore
 from ..classify.train import MODEL_FILENAME, train as train_model
 
@@ -91,8 +93,11 @@ def scan():
                 f"export, not at the Post photos."
             )), 400
 
+    overrides = OverrideStore(model_dir)
     _allowed_roots.add(site_dir)
-    assignments = assign_site(site_dir, load_model(model_dir), store)
+    _allowed_roots.add(overrides.uploads)      # so uploaded photos get thumbnails
+    assignments = assign_site(site_dir, load_model(model_dir), store,
+                              overrides=overrides)
 
     sectors = []
     for name, assignment in sorted(assignments.items()):
@@ -109,6 +114,7 @@ def scan():
                 "photoName": slot.photo.name if slot.photo else None,
                 "confidence": round(slot.confidence, 3),
                 "confirmed": slot.confirmed,
+                "manual": slot.manual,
                 "needsDecision": slot.needs_decision,
                 "reasons": slot.reasons,
                 "alternatives": [
@@ -177,6 +183,82 @@ def confirm():
     store.add(path, site=site, sector=sector, category=category, port=row)
     store.save()
     return jsonify(ok=True, confirmations=len(store))
+
+
+ALLOWED_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+MAX_UPLOAD_BYTES = 60 * 1024 * 1024
+
+
+@bp.post("/api/review/upload")
+def upload():
+    """Replace a slot with a photo chosen from this computer.
+
+    The file is copied into the app's own uploads folder; your original is left
+    where it is. Any previous upload for the same slot is deleted, since it is a
+    copy this app made and nothing else points at it.
+    """
+    uploaded = request.files.get("file")
+    if uploaded is None or not uploaded.filename:
+        return jsonify(error="No file was received."), 400
+
+    row = (request.form.get("row") or "").strip()
+    site = (request.form.get("site") or "").strip()
+    sector = (request.form.get("sector") or "").strip()
+    model_dir = Path(request.form.get("modelDir")
+                     or "antenna_audit/classify/models").expanduser().resolve()
+
+    if row not in ALL_ROWS:
+        return jsonify(error=f"unknown slot '{row}'"), 400
+    if not site or not sector:
+        return jsonify(error="Missing site or sector."), 400
+
+    suffix = Path(uploaded.filename).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+        return jsonify(error=(
+            f"'{suffix or uploaded.filename}' is not an image. Choose a "
+            f"JPG, PNG, WEBP, BMP or GIF."
+        )), 400
+
+    # Land it in a temp file first, so a corrupt upload never replaces a good slot.
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        uploaded.save(handle.name)
+        staged = Path(handle.name)
+    try:
+        try:
+            with Image.open(staged) as probe:
+                probe.verify()
+        except Exception:
+            return jsonify(error="That file is not a readable image."), 400
+        if staged.stat().st_size > MAX_UPLOAD_BYTES:
+            return jsonify(error="That image is larger than 60 MB."), 400
+
+        overrides = OverrideStore(model_dir)
+        record = overrides.save_upload(site, sector, row, staged,
+                                       uploaded.filename)
+        overrides.save()
+        _allowed_roots.add(overrides.uploads)
+    finally:
+        staged.unlink(missing_ok=True)
+
+    return jsonify(ok=True, path=str(record.path), name=record.original_name)
+
+
+@bp.post("/api/review/upload/remove")
+def remove_upload():
+    """Undo a manual replacement and go back to what the app proposed."""
+    payload = request.get_json(silent=True) or {}
+    row = (payload.get("row") or "").strip()
+    site = (payload.get("site") or "").strip()
+    sector = (payload.get("sector") or "").strip()
+    model_dir = Path(payload.get("modelDir")
+                     or "antenna_audit/classify/models").expanduser().resolve()
+    if row not in ALL_ROWS:
+        return jsonify(error=f"unknown slot '{row}'"), 400
+
+    overrides = OverrideStore(model_dir)
+    removed = overrides.remove(site, sector, row)
+    overrides.save()
+    return jsonify(ok=True, removed=removed)
 
 
 @bp.post("/api/review/retrain")

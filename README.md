@@ -343,6 +343,31 @@ measured site, of the 12 single-slot picks: **8 correct, 1 wrong, 3 deferred to 
 — the deferrals are slots where the best candidate scored below 30%, which is where
 every mistake fell.
 
+### Wrong photo? Use your own
+
+Every slot has **"Wrong photo? Use one from my computer…"**. Pick any image and it
+takes that slot outright — no ranking, no gate, because you looked at it and said
+so. A slot you have replaced shows **your photo** and an undo link that puts the
+app's pick back.
+
+Your original file is **copied, never moved**; the app only ever deletes copies it
+made itself, and only the one for the slot you are replacing.
+
+### What each slot will accept
+
+Ranking alone put a cable-tag close-up under Mechanical Tilt and a tilt photo under
+Azimuth, so the two instrument slots have a rule on top of the ranking:
+
+| Slot | Only accepts |
+|---|---|
+| **Azimuth** | a photo showing a **compass** — a round dial |
+| **Mechanical tilt** | a photo showing the **meter with a reading on it** — a display with digits |
+
+A photo that fails is not placed however well it ranked; the slot says so and offers
+the rejected candidates, so you can overrule the rule when it is wrong. Both checks
+are colour-blind on purpose — the crew changed instruments between rounds, so
+anything keyed to the green Digi-Pas would fail on the blue gauge.
+
 ### It learns from your confirmations
 
 The survey crew changed instruments between rounds: the Pre photos show a green

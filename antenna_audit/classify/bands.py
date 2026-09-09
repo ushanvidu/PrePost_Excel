@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..catalog import ELECTRICAL_TILT_CATEGORIES, MECHANICAL_AZIMUTH_CATEGORIES
-from . import labels, ports
+from . import labels, ports, subjects
 from .predict import SectorPrediction, predict_sector
+from .overrides import OverrideStore
 from .store import ConfirmationStore
 
 # The two rows that share one photograph.
@@ -51,6 +52,7 @@ class SlotFill:
     photo: Path | None = None
     confidence: float = 0.0
     confirmed: bool = False
+    manual: bool = False           # you supplied this photo yourself
     needs_decision: bool = False   # true when only a human can resolve it
     reasons: list[str] = field(default_factory=list)
     alternatives: list[Path] = field(default_factory=list)
@@ -83,11 +85,19 @@ def assign_sector(
     store: ConfirmationStore | None = None,
     profile: ports.AntennaProfile = ports.DEFAULT_PROFILE,
     site: str = "",
+    overrides: OverrideStore | None = None,
 ) -> SectorAssignment:
-    """Propose a photo for every slot in one sector."""
+    """Propose a photo for every slot in one sector.
+
+    A photo you uploaded for a slot wins outright — no ranking, no gate. You
+    looked at it and said this is the one.
+    """
     prediction: SectorPrediction = predict_sector(sector_dir, model, store)
     assignment = SectorAssignment(sector=sector_dir.name)
     used: set[Path] = set()
+
+    manual = (overrides.for_sector(site, sector_dir.name)
+              if overrides is not None else {})
 
     # Photos the classifier reads as electrical tilt are reserved for the band
     # rows. Without this the single-slot loop below, which runs first, can take
@@ -98,7 +108,28 @@ def assign_sector(
     for row, category in RIGHT_SIDE_ROWS.items():
         ranked = [c for c in prediction.ranked.get(category, [])
                   if c.path not in used and c.path not in reserved]
+
+        # Azimuth must show a compass; mechanical tilt must show a meter with a
+        # reading on it. Ranking alone put a cable-tag close-up under M Tilt and
+        # a tilt photo under Azimuth, so the top-ranked photo is not enough —
+        # it has to contain the right instrument.
+        checks: dict[Path, subjects.SubjectCheck] = {}
+        eligible = []
+        for candidate in ranked:
+            if candidate.confirmed:
+                eligible.append(candidate)      # your decision overrides the gate
+                continue
+            result = subjects.check(category, candidate.path)
+            checks[candidate.path] = result
+            if result.passed:
+                eligible.append(candidate)
+        rejected = len(ranked) - len(eligible)
+        ranked = eligible
+
         slot = SlotFill(row=row)
+        if row in manual:
+            assignment.slots[row] = _manual_slot(row, manual[row])
+            continue
         best = ranked[0] if ranked else None
         if best is not None and (best.confirmed or best.score >= MIN_AUTOFILL_SCORE):
             slot.photo = best.path
@@ -109,6 +140,9 @@ def assign_sector(
                 else f"best match for {labels.DISPLAY[category].lower()}"
                      f" ({best.score:.0%})"
             )
+            check = checks.get(best.path)
+            if check is not None and check.reasons:
+                slot.reasons.extend(check.reasons)
             slot.alternatives = [c.path for c in ranked[1:3]]
             used.add(best.path)
         elif best is not None:
@@ -125,7 +159,21 @@ def assign_sector(
             slot.alternatives = [c.path for c in ranked[:3]]
         else:
             slot.needs_decision = True
-            slot.reasons.append("no candidate found in this sector")
+            if rejected:
+                subject = ("a compass" if category == labels.AZIMUTH
+                           else "a meter showing a reading")
+                slot.reasons.append(
+                    f"no photo in this sector shows {subject} — "
+                    f"{rejected} candidate(s) ranked well but were rejected on "
+                    f"what they actually contain"
+                )
+                # Still offer them, so you can overrule the gate if it is wrong.
+                slot.alternatives = [
+                    c.path for c in prediction.ranked.get(category, [])[:3]
+                    if c.path not in used
+                ]
+            else:
+                slot.reasons.append("no candidate found in this sector")
         assignment.slots[row] = slot
 
     # --- electrical tilt: split low band from high band ----------------------
@@ -142,6 +190,9 @@ def assign_sector(
     # 850 and 900 are one photograph in two rows.
     low_photo = confirmed_rows.get("850_Tilt") or (low[0] if low else None)
     for row in LOW_BAND_ROWS:
+        if row in manual:
+            assignment.slots[row] = _manual_slot(row, manual[row])
+            continue
         slot = SlotFill(row=row)
         chosen = confirmed_rows.get(row) or low_photo
         if chosen is not None:
@@ -167,6 +218,9 @@ def assign_sector(
     # High bands cannot be told apart from the image. Offer, never guess.
     remaining = [p for p in high if p not in used]
     for index, row in enumerate(HIGH_BAND_ROWS):
+        if row in manual:
+            assignment.slots[row] = _manual_slot(row, manual[row])
+            continue
         slot = SlotFill(row=row)
         chosen = confirmed_rows.get(row)
         if chosen is not None:
@@ -192,6 +246,16 @@ def assign_sector(
     return assignment
 
 
+def _manual_slot(row: str, override) -> SlotFill:
+    """A slot filled by a photo the engineer supplied."""
+    name = override.original_name or override.path.name
+    return SlotFill(
+        row=row, photo=override.path, confidence=1.0,
+        confirmed=True, manual=True,
+        reasons=[f"you uploaded this photo ({name})"],
+    )
+
+
 def _confirmed_band_rows(
     photos: list[Path], store: ConfirmationStore | None
 ) -> dict[str, Path]:
@@ -213,13 +277,15 @@ def _confirmed_band_rows(
 def assign_site(
     site_dir: Path, model, store: ConfirmationStore | None = None,
     profile: ports.AntennaProfile = ports.DEFAULT_PROFILE,
+    overrides: OverrideStore | None = None,
 ) -> dict[str, SectorAssignment]:
     """Propose slot fills for every sector folder under a site."""
     sectors = sorted(
         d for d in site_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
     )
     return {
-        d.name: assign_sector(d, model, store, profile, site=site_dir.name)
+        d.name: assign_sector(d, model, store, profile, site=site_dir.name,
+                              overrides=overrides)
         for d in sectors
     }
 

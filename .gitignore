@@ -21,6 +21,7 @@ Documents/
 # photos, and confirmations.csv records site and sector names.
 antenna_audit/classify/models/
 confirmations.csv
+manual_overrides.csv
 
 # macOS
 .DS_Store

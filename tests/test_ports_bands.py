@@ -277,3 +277,97 @@ def test_training_on_the_wrong_folder_explains_itself(client, tmp_path):
     assert response.mimetype == "application/json"
     message = response.get_json()["error"]
     assert "Pre photos" in message and "Ant_Sec_1" in message
+
+
+# --- manual replacement ------------------------------------------------------
+
+def test_an_uploaded_photo_wins_the_slot(tmp_path, model):
+    """You looked at it and said this is the one; nothing should overrule that."""
+    from antenna_audit.classify.overrides import OverrideStore
+
+    sector = tmp_path / "S1"
+    for i in range(3):
+        _plain(sector / f"p{i}.jpg", (120, 170, 230 - i))
+    mine = _plain(tmp_path / "mine.jpg", (10, 200, 10))
+
+    overrides = OverrideStore(tmp_path / "models")
+    overrides.save_upload("SITE", "S1", "Antenna_Azimuth_Photo", mine, "mine.jpg")
+    overrides.save()
+
+    assignment = assign_sector(sector, model, site="SITE", overrides=overrides)
+    slot = assignment.slots["Antenna_Azimuth_Photo"]
+    assert slot.filled and slot.manual and slot.confirmed
+    assert "mine.jpg" in " ".join(slot.reasons)
+
+
+def test_upload_copies_and_never_moves_your_original(tmp_path):
+    from antenna_audit.classify.overrides import OverrideStore
+
+    original = _plain(tmp_path / "originals" / "photo.jpg")
+    overrides = OverrideStore(tmp_path / "models")
+    record = overrides.save_upload("S", "S1", "850_Tilt", original, "photo.jpg")
+
+    assert original.exists(), "the file you picked must be left alone"
+    assert record.path.exists() and record.path != original
+
+
+def test_replacing_a_slot_removes_the_previous_upload(tmp_path):
+    from antenna_audit.classify.overrides import OverrideStore
+
+    first = _plain(tmp_path / "a.jpg", (10, 10, 10))
+    second = _plain(tmp_path / "b.jpg", (200, 200, 200))
+    overrides = OverrideStore(tmp_path / "models")
+
+    old = overrides.save_upload("S", "S1", "850_Tilt", first, "a.jpg").path
+    new = overrides.save_upload("S", "S1", "850_Tilt", second, "b.jpg").path
+
+    assert new.exists()
+    assert not old.exists() or old == new, "the superseded copy should be gone"
+    assert first.exists() and second.exists(), "originals untouched"
+
+
+def test_removing_an_override_falls_back_to_the_app_pick(tmp_path):
+    from antenna_audit.classify.overrides import OverrideStore
+
+    photo = _plain(tmp_path / "x.jpg")
+    overrides = OverrideStore(tmp_path / "models")
+    copied = overrides.save_upload("S", "S1", "850_Tilt", photo, "x.jpg").path
+    assert overrides.get("S", "S1", "850_Tilt") is not None
+
+    assert overrides.remove("S", "S1", "850_Tilt")
+    assert overrides.get("S", "S1", "850_Tilt") is None
+    assert not copied.exists()
+    assert photo.exists(), "your original must survive the undo"
+
+
+def test_override_survives_a_reload(tmp_path):
+    from antenna_audit.classify.overrides import OverrideStore
+
+    photo = _plain(tmp_path / "y.jpg")
+    store = OverrideStore(tmp_path / "models")
+    store.save_upload("SITE", "S2", "2100_Tilt", photo, "y.jpg")
+    store.save()
+
+    reloaded = OverrideStore(tmp_path / "models")
+    record = reloaded.get("SITE", "S2", "2100_Tilt")
+    assert record is not None and record.original_name == "y.jpg"
+
+
+def test_upload_route_rejects_a_non_image(client, tmp_path):
+    import io as _io
+    response = client.post("/api/review/upload", data={
+        "file": (_io.BytesIO(b"not a picture"), "notes.txt"),
+        "row": "Antenna_M_Tilt", "site": "S", "sector": "S1",
+        "modelDir": str(tmp_path),
+    }, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert "not an image" in response.get_json()["error"]
+
+
+def test_upload_route_rejects_an_unknown_slot(client, tmp_path):
+    import io as _io
+    response = client.post("/api/review/upload", data={
+        "file": (_io.BytesIO(b"x"), "a.jpg"), "row": "bogus_row",
+        "site": "S", "sector": "S1", "modelDir": str(tmp_path),
+    }, content_type="multipart/form-data")
+    assert response.status_code == 400
