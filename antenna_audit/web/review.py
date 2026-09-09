@@ -78,7 +78,18 @@ def scan():
         root = Path(images_root).expanduser().resolve()
         if not root.is_dir():
             return jsonify(error=f"Not a folder: {root}"), 400
-        train_model(root, model_dir, confirmed=store.training_rows([site_dir, root]))
+        try:
+            train_model(root, model_dir,
+                        confirmed=store.training_rows([site_dir, root]))
+        except ValueError as exc:
+            # Nearly always the wrong folder: the trainer needs the *labelled
+            # Pre* photos, whose filenames carry the sector and category.
+            return jsonify(error=(
+                f"{exc}. That folder needs the labelled Pre photos — one "
+                f"sub-folder per site, with names like "
+                f"'..._Ant_Sec_1__850_Tilt_1.jpg'. Point it at the survey "
+                f"export, not at the Post photos."
+            )), 400
 
     _allowed_roots.add(site_dir)
     assignments = assign_site(site_dir, load_model(model_dir), store)

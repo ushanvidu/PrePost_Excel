@@ -225,3 +225,55 @@ def test_a_weak_best_guess_is_offered_not_placed(tmp_path, model):
         assert not slot.filled, "a weak guess must not be written into the sheet"
         assert slot.needs_decision
         assert slot.alternatives, "but it must still be offered as a candidate"
+
+
+# --- API errors must never be HTML ------------------------------------------
+# The browser reads these replies with res.json(). Flask's default error page is
+# HTML, which surfaced in the console as `Unexpected token '<', "<!doctype "...`
+# and told the user nothing. Every /api/* reply is JSON now, whatever happens.
+
+def test_unknown_api_route_answers_in_json(client):
+    response = client.get("/api/does-not-exist")
+    assert response.status_code == 404
+    assert response.mimetype == "application/json"
+    assert "error" in response.get_json()
+
+
+def test_pages_are_still_html(client):
+    """Only /api/* is forced to JSON; the pages themselves must still render."""
+    for path in ("/", "/review"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.mimetype == "text/html"
+
+
+def test_a_crash_inside_an_api_route_answers_in_json(client, monkeypatch):
+    """Even an unexpected exception comes back as JSON with the reason."""
+    import antenna_audit.web.review as review
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("something unexpected")
+
+    monkeypatch.setattr(review, "ConfirmationStore", boom)
+    response = client.post("/api/review/confirm", json={
+        "path": "/tmp/x.jpg", "row": "850_Tilt", "site": "S", "sector": "S1",
+    })
+    assert response.mimetype == "application/json"
+    assert "error" in response.get_json()
+
+
+def test_training_on_the_wrong_folder_explains_itself(client, tmp_path):
+    """The commonest mistake: pointing at the Post photos instead of the Pre."""
+    empty = tmp_path / "not-the-pre-photos"
+    (empty / "S1").mkdir(parents=True)
+    models = tmp_path / "fresh-models"        # no trained model, as on a clone
+    site = tmp_path / "site"
+    (site / "S1").mkdir(parents=True)
+
+    response = client.post("/api/review/scan", json={
+        "postPath": str(site), "imagesRoot": str(empty), "modelDir": str(models),
+    })
+    assert response.status_code == 400
+    assert response.mimetype == "application/json"
+    message = response.get_json()["error"]
+    assert "Pre photos" in message and "Ant_Sec_1" in message

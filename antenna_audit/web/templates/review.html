@@ -118,6 +118,21 @@
 
 <script>
 const $ = s => document.querySelector(s);
+
+// Read a reply as JSON, but survive a server that answered with HTML.
+// Without this a crash shows up as "Unexpected token '<'", which tells the
+// user nothing about what went wrong.
+async function readJson(res) {
+  const body = await res.text();
+  try { return JSON.parse(body); }
+  catch {
+    const looksHtml = body.trim().startsWith('<');
+    throw new Error(looksHtml
+      ? `The server returned an error page (HTTP ${res.status}). Check the terminal running the app for the reason.`
+      : (body.slice(0, 200) || `Empty reply (HTTP ${res.status}).`));
+  }
+}
+
 let SITE = "", MODEL_DIR = "", DATA = null;
 
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -134,7 +149,7 @@ $('#go').onclick = async () => {
         imagesRoot: $('#imagesRoot').value,
       }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) throw new Error(data.error || 'Scan failed.');
     SITE = data.site; MODEL_DIR = data.modelDir; DATA = data;
     render(data);
@@ -195,7 +210,7 @@ function wireThumbs() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({path, row, sector, site: SITE, modelDir: MODEL_DIR}),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) { showError(data.error || 'Could not save that.'); return; }
       // Mark chosen within this slot only.
       el.parentElement.querySelectorAll('.thumb').forEach(t=>t.classList.remove('chosen'));
@@ -221,7 +236,7 @@ $('#retrain').onclick = async () => {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({imagesRoot: $('#imagesRoot').value, modelDir: MODEL_DIR}),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) throw new Error(data.error || 'Retrain failed.');
     btn.textContent = `Retrained — ${data.confirmedUsed} of yours, ${Math.round(data.accuracy*100)}% cross-validated`;
     setTimeout(()=>{ btn.textContent='Retrain with my confirmations'; btn.disabled=false; }, 4000);

@@ -176,6 +176,21 @@
 
 <script>
 const $ = s => document.querySelector(s);
+
+// Read a reply as JSON, but survive a server that answered with HTML.
+// Without this a crash shows up as "Unexpected token '<'", which tells the
+// user nothing about what went wrong.
+async function readJson(res) {
+  const body = await res.text();
+  try { return JSON.parse(body); }
+  catch {
+    const looksHtml = body.trim().startsWith('<');
+    throw new Error(looksHtml
+      ? `The server returned an error page (HTTP ${res.status}). Check the terminal running the app for the reason.`
+      : (body.slice(0, 200) || `Empty reply (HTTP ${res.status}).`));
+  }
+}
+
 let mode = 'upload';
 let picked = new Map();   // site name -> File[]
 let poll = null;
@@ -282,7 +297,7 @@ $('#go').onclick = async () => {
       $('#results').classList.remove('hidden');
       res = await fetch('/api/build', { method: 'POST', body });
     }
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) throw new Error(data.error || 'The build could not be started.');
     $('#input-panel').classList.add('hidden');
     $('#results').classList.remove('hidden');
@@ -299,7 +314,7 @@ function track(id) {
   const tick = async () => {
     const res = await fetch('/api/job/' + id);
     if (!res.ok) { clearInterval(poll); showError('This build has expired.'); return; }
-    const job = await res.json();
+    const job = await readJson(res);
     render(job, id);
     if (job.state === 'done' || job.state === 'failed') {
       clearInterval(poll);

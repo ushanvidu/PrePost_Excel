@@ -20,6 +20,7 @@ from pathlib import Path
 from flask import (
     Flask, jsonify, render_template, request, send_file, abort,
 )
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from ..imaging import DEFAULT_MAX_DIM
@@ -165,6 +166,31 @@ def create_app() -> Flask:
             error="That upload is larger than 8 GB. Use the "
                   "“folder on this computer” option instead."
         ), 413
+
+    # The browser calls these endpoints with fetch() and reads the reply as
+    # JSON. Flask's default error page is HTML, so any unhandled failure used to
+    # surface in the console as `Unexpected token '<', "<!doctype "...` — which
+    # says nothing about what actually went wrong. Answer in JSON instead, and
+    # carry the real reason through to the screen.
+    def _wants_json() -> bool:
+        return request.path.startswith("/api/")
+
+    @app.errorhandler(HTTPException)
+    def http_error(error: HTTPException):
+        if not _wants_json():
+            return error
+        return jsonify(error=error.description or error.name), error.code
+
+    @app.errorhandler(Exception)
+    def unhandled_error(error: Exception):
+        if not _wants_json():
+            raise error
+        app.logger.exception("unhandled error on %s", request.path)
+        return jsonify(
+            error=f"{type(error).__name__}: {error}",
+            hint="This is a bug or a bad input path. The server log has the "
+                 "full traceback.",
+        ), 500
 
     def _start(job) -> None:
         thread = threading.Thread(target=run_job, args=(job,), daemon=True)
