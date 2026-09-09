@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Post photos — Antenna Audit</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --panel:#fff; --ink:#1f2933; --muted:#5b6672; --faint:#9aa5b1;
+    --line:#e1e5ea; --accent:#1f6feb; --accent-soft:#eaf1fd;
+    --ok:#2f7a43; --ok-soft:#e8f5ec; --warn:#9a6b12; --warn-soft:#fdf5e4;
+    --bad:#b04a4a; --bad-soft:#fdeeee; --radius:10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#14181d; --panel:#1b2026; --ink:#e8ecf1; --muted:#a3aeba; --faint:#6b7783;
+      --line:#2b323a; --accent:#6ea8fe; --accent-soft:#1d2836;
+      --ok:#7fd39a; --ok-soft:#1a2a20; --warn:#e5bb63; --warn-soft:#2b2415;
+      --bad:#f08a8a; --bad-soft:#2e1c1c;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:36px 24px 90px}
+  h1{font-size:25px;margin:0 0 6px;letter-spacing:-.2px}
+  .lede{color:var(--muted);margin:0 0 24px}
+  .panel{background:var(--panel);border:1px solid var(--line);
+         border-radius:var(--radius);padding:20px;margin-bottom:18px}
+  label.field{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  input[type=text]{width:100%;padding:10px 12px;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px}
+  .row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+  .row>.grow{flex:1 1 340px}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:8px;
+       padding:11px 20px;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .btn.small{padding:6px 12px;font-size:13px}
+  .hint{font-size:12.5px;color:var(--faint);margin-top:6px}
+  .err{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad);
+       border-radius:8px;padding:11px 14px;font-size:14px;margin-bottom:16px}
+  .note{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);
+        border-radius:8px;padding:12px 14px;font-size:13.5px;margin-bottom:18px}
+  .sector{margin-bottom:26px}
+  .sector h2{font-size:17px;margin:0 0 12px;padding-bottom:8px;
+             border-bottom:1px solid var(--line)}
+  .slot{display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .slot:last-child{border-bottom:0}
+  .slot .meta{flex:1 1 auto;min-width:0}
+  .slot .name{font-weight:650;margin-bottom:3px}
+  .reason{font-size:12.5px;color:var(--muted);margin-top:4px}
+  .badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+         padding:2px 8px;border-radius:999px;margin-left:8px}
+  .b-ok{background:var(--ok-soft);color:var(--ok)}
+  .b-need{background:var(--warn-soft);color:var(--warn)}
+  .b-low{background:var(--bad-soft);color:var(--bad)}
+  .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .thumb{border:2px solid transparent;border-radius:8px;overflow:hidden;
+         cursor:pointer;background:var(--bg);width:104px}
+  .thumb.chosen{border-color:var(--accent)}
+  .thumb img{display:block;width:100%;height:78px;object-fit:cover}
+  .thumb span{display:block;font-size:10.5px;color:var(--muted);padding:3px 5px;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .empty{width:104px;height:78px;border:2px dashed var(--line);border-radius:8px;
+         display:flex;align-items:center;justify-content:center;
+         font-size:11px;color:var(--faint);text-align:center;padding:4px}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
+       border-top:1px solid var(--line);padding:12px 24px;display:flex;gap:12px;
+       align-items:center;justify-content:center}
+  .hidden{display:none!important}
+  code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Review Post photos</h1>
+  <p class="lede">Confirm where each Post photo goes. Your choices fill the slots the
+     classifier can't resolve — and train it, so the next site needs fewer clicks.</p>
+
+  <div class="panel" id="setup">
+    <div class="row">
+      <div class="grow">
+        <label class="field" for="postPath">Folder holding this site's Post photos (the one containing S1, S2, …)</label>
+        <input id="postPath" type="text" spellcheck="false"
+               placeholder="/Users/you/Documents/ZTE/Pre_Post/GMNIT1">
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="grow">
+        <label class="field" for="imagesRoot">Labelled Pre photos (used to train the classifier)</label>
+        <input id="imagesRoot" type="text" spellcheck="false"
+               placeholder="/Users/you/Documents/IMAGE-P202506262207_D001-20260">
+      </div>
+      <button class="btn" id="go">Scan photos</button>
+    </div>
+    <p class="hint">Everything runs on this machine. No photos are uploaded anywhere.</p>
+  </div>
+
+  <div id="error" class="err hidden"></div>
+
+  <div id="results" class="hidden">
+    <div class="note">
+      <strong>850 and 900 share one photograph.</strong> They sit on one array with one
+      adjuster, so both rows take the same shot — that's the hardware, not a shortcut.
+      <strong>1800-1, 1800-2 and 2100</strong> sit on three identical arrays, so which
+      band is which comes from the RRU cabling and cannot be read off the photo. Those
+      three are yours to assign.
+    </div>
+    <div id="sectors"></div>
+  </div>
+</div>
+
+<div class="bar hidden" id="bar">
+  <span id="tally" style="color:var(--muted);font-size:14px"></span>
+  <button class="btn ghost" id="retrain">Retrain with my confirmations</button>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SITE = "", MODEL_DIR = "", DATA = null;
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function thumbUrl(p){return '/api/review/thumb?path=' + encodeURIComponent(p)}
+function showError(m){const b=$('#error');b.textContent=m;b.classList.toggle('hidden',!m)}
+
+$('#go').onclick = async () => {
+  showError(''); $('#go').disabled = true;
+  try {
+    const res = await fetch('/api/review/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        postPath: $('#postPath').value,
+        imagesRoot: $('#imagesRoot').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Scan failed.');
+    SITE = data.site; MODEL_DIR = data.modelDir; DATA = data;
+    render(data);
+  } catch (e) { showError(e.message); }
+  $('#go').disabled = false;
+};
+
+function render(data) {
+  $('#results').classList.remove('hidden');
+  $('#bar').classList.remove('hidden');
+  $('#sectors').innerHTML = data.sectors.map(sectorCard).join('');
+  wireThumbs();
+  tally();
+}
+
+function sectorCard(sec) {
+  return `<div class="sector"><h2>${esc(sec.sector)}</h2>` +
+    sec.slots.map(s => slotRow(sec, s)).join('') + `</div>`;
+}
+
+function slotRow(sec, slot) {
+  let badge = '';
+  if (slot.confirmed) badge = '<span class="badge b-ok">confirmed</span>';
+  else if (slot.needsDecision) badge = '<span class="badge b-need">needs you</span>';
+  else if (slot.confidence < 0.5) badge = `<span class="badge b-low">low ${Math.round(slot.confidence*100)}%</span>`;
+  else badge = `<span class="badge b-ok">${Math.round(slot.confidence*100)}%</span>`;
+
+  // The chosen photo first, then any alternatives, all clickable.
+  const options = [];
+  if (slot.photo) options.push({path: slot.photo, name: slot.photoName, chosen: true});
+  for (const a of slot.alternatives)
+    if (a.path !== slot.photo) options.push({path: a.path, name: a.name, chosen: false});
+
+  const thumbs = options.length
+    ? options.map(o => `
+        <div class="thumb ${o.chosen?'chosen':''}" data-path="${esc(o.path)}"
+             data-row="${esc(slot.row)}" data-sector="${esc(sec.sector)}"
+             title="${esc(o.name)} — click to put this photo in this slot">
+          <img loading="lazy" src="${thumbUrl(o.path)}" alt="">
+          <span>${esc(o.name.slice(-14))}</span>
+        </div>`).join('')
+    : `<div class="empty">no candidate<br>in this sector</div>`;
+
+  return `<div class="slot">
+    <div class="meta">
+      <div class="name">${esc(slot.heading)}${badge}</div>
+      ${slot.reasons.map(r=>`<div class="reason">${esc(r)}</div>`).join('')}
+      <div class="thumbs">${thumbs}</div>
+    </div>
+  </div>`;
+}
+
+function wireThumbs() {
+  document.querySelectorAll('.thumb').forEach(el => {
+    el.onclick = async () => {
+      const {path, row, sector} = el.dataset;
+      const res = await fetch('/api/review/confirm', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({path, row, sector, site: SITE, modelDir: MODEL_DIR}),
+      });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error || 'Could not save that.'); return; }
+      // Mark chosen within this slot only.
+      el.parentElement.querySelectorAll('.thumb').forEach(t=>t.classList.remove('chosen'));
+      el.classList.add('chosen');
+      const badge = el.closest('.slot').querySelector('.badge');
+      if (badge) { badge.className = 'badge b-ok'; badge.textContent = 'confirmed'; }
+      DATA.confirmations = data.confirmations;
+      tally();
+    };
+  });
+}
+
+function tally() {
+  const need = DATA.sectors.reduce((n,s)=>n + s.slots.filter(x=>x.needsDecision).length, 0);
+  $('#tally').textContent =
+    `${DATA.confirmations} confirmation(s) saved · ${need} slot(s) still need a decision`;
+}
+
+$('#retrain').onclick = async () => {
+  const btn = $('#retrain'); btn.disabled = true; btn.textContent = 'Retraining…';
+  try {
+    const res = await fetch('/api/review/retrain', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({imagesRoot: $('#imagesRoot').value, modelDir: MODEL_DIR}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Retrain failed.');
+    btn.textContent = `Retrained — ${data.confirmedUsed} of yours, ${Math.round(data.accuracy*100)}% cross-validated`;
+    setTimeout(()=>{ btn.textContent='Retrain with my confirmations'; btn.disabled=false; }, 4000);
+  } catch (e) { showError(e.message); btn.disabled = false; btn.textContent='Retrain with my confirmations'; }
+};
+</script>
+</body>
+</html>

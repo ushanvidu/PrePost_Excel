@@ -4,7 +4,83 @@ Builds one Excel workbook per site from a folder of field-survey photos, placing
 every **Pre** photo under its heading and leaving aligned, labelled empty boxes
 for the **Post** photos you paste in by hand afterwards.
 
-Reverse-engineered from `Documents/GMTHI1 Antenna Audit Photos.xlsx`.
+It also classifies the unlabelled **Post** photos and places the ones it can
+resolve, leaving the rest for you to confirm in a review screen.
+
+The sheet layout was reverse-engineered from an existing hand-made workbook. That
+workbook and the survey photos are field data and are **not** in this repository —
+you bring your own.
+
+Everything runs on your own machine. There is no API key, no account, and no
+cloud service — the photos never leave your laptop.
+
+---
+
+## Install
+
+### What you need
+
+* **Python 3.10 or newer** — check with `python3 --version`. Verified on 3.12 and
+  3.14; a fresh clone installs and passes its full test suite on both. If you don't
+  have Python, get it from [python.org](https://www.python.org/downloads/) or, on a
+  Mac with Homebrew, `brew install python`.
+* **Git** — to clone the repository.
+
+Nothing else. No database, no API keys, no system libraries to compile.
+
+### Setup
+
+```bash
+git clone https://github.com/ushanvidu/PrePost_Excel.git
+cd PrePost_Excel
+
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+That's it. The first install pulls a few scientific packages (OpenCV, scikit-learn,
+NumPy) and takes a couple of minutes; after that startup is instant.
+
+### Check it works
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+You should see **81 tests pass**. They build their own synthetic images, so this
+works on a clean checkout before you have added any photos of your own.
+
+### Run it
+
+```bash
+python -m antenna_audit web
+```
+
+Then open **http://127.0.0.1:8765** in a browser. On macOS you can instead
+double-click **`Antenna Audit App.command`**, which sets up the virtual
+environment on first run and then opens the browser for you.
+
+### Where to put your photos
+
+The tool expects one folder per site. Pre photos keep the names the survey tool
+gives them; Post photos can be named anything, but live in per-sector folders:
+
+```
+Pre photos                          Post photos
+IMAGE-P20250626.../                 Pre_Post/
+├── GMTHI1/                         └── GMNIT1/
+│   ├── ..._Ant_Sec_1__850_Tilt_1.jpg   ├── S1/
+│   └── ..._Ant_Sec_1_Antenna_M_Tilt_1.jpg  │   └── WhatsApp Image ....jpeg
+└── GMNIT1/                             ├── S2/
+    └── ...                             ├── S3/
+                                        └── S4/
+```
+
+Nothing in the repository depends on those exact folder names — you point the app
+at whichever folders you have.
 
 ---
 
@@ -178,6 +254,9 @@ dedupe.py     shares identical embedded images
 validate.py   structural checks: nothing overlaps, every drawing resolves
 cli.py        command line
 web/          the browser app: server.py (routes), jobs.py (background builds)
+classify/     Post-photo classifier: features.py (colour/shape/texture),
+              train.py (fit + honest scoring), predict.py (ranked candidates),
+              store.py (your confirmations, fed back into training)
 ```
 
 Planning is deliberately separate from writing. The Excel writer and the PNG
@@ -200,6 +279,90 @@ category `1800_Tilt_1`, sequence `1`.
 
 Categories the parser has never seen are still placed in the *report* output and
 flagged as `UNKNOWN`, so a new survey token shows up rather than disappearing.
+
+---
+
+## Classifying the Post photos
+
+Post photos arrive with no useful names (`WhatsApp Image 2026-09-06 at 19.37.45.jpeg`)
+in per-sector folders. `classify` ranks them against the sheet's slots:
+
+```bash
+python -m antenna_audit classify /path/to/GMNIT1 \
+    --images-root Documents/IMAGE-P202506262207_D001-20260
+```
+
+It prints, per sector, the best photo for each single-slot category with a confidence,
+plus alternatives, plus the electrical-tilt photos it found. Everything runs on your
+machine — no API, no cost, and no client site imagery leaving the laptop.
+
+### Two things the photos genuinely cannot tell you
+
+Worth knowing before trusting any tool, including this one. The antenna is a Huawei
+**AQU4518R9v06**: `690-960 / 1695-2690 / 1695-2690 / 1695-2690` — one low-band array and
+three identical high-band arrays, on **four** RET adjusters.
+
+- **850 and 900 share one array and one adjuster.** There is one photo, not two. The Pre
+  data proves it: those files are byte-identical under both names. The sheet places the
+  same photo in both rows, which is what the Pre side already did.
+- **1800-1 / 1800-2 / 2100 sit on three electrically identical arrays.** Which band feeds
+  which port is set by RRU cabling and leaves no visual trace. No classifier can read it
+  off the photo; you assign it once per site and the tool remembers.
+
+So the tool classifies to *category*, and identifies the *port* — never the band directly.
+
+**What was tried and rejected on measurement**, recorded so nobody repeats it:
+
+| Approach | Result |
+|---|---|
+| Red-ring detection (finds the low-band adjuster) | **Kept** — 9/13 per photo, but 4/4 when picking the best ring photo per sector, which is all that is needed |
+| OCR of the moulded port codes | **Removed** — Tesseract 5.5.3 recovered a correct code in **0 of 12** frames, including the one showing all four codes at once. Moulded, upside-down, corroded, low-contrast text at 1.2 MP is out of reach |
+| Shooting order as a band hint | **Rejected** — measured across four sectors, it is ad-hoc |
+| Training a CNN | **Rejected** — 148 labelled tilt photos, 15 of them duplicate mislabels, for a label that is not in the pixels |
+
+### Placing them in the sheet
+
+```bash
+python -m antenna_audit build --images-root <pre-photos> --out output \
+    --post-root /path/to/Pre_Post
+```
+
+Post photos the classifier resolves are placed automatically; anything it cannot
+resolve keeps its empty drop box, so an unresolved slot reads as "fill this in"
+rather than silently carrying a wrong photo.
+
+### The review screen
+
+```bash
+python -m antenna_audit web        # then open /review
+```
+
+Each slot shows its proposed photo, the confidence, the reason, and the runner-up
+candidates as thumbnails. Click a thumbnail to put that photo in that slot. On the
+measured site, of the 12 single-slot picks: **8 correct, 1 wrong, 3 deferred to you**
+— the deferrals are slots where the best candidate scored below 30%, which is where
+every mistake fell.
+
+### It learns from your confirmations
+
+The survey crew changed instruments between rounds: the Pre photos show a green
+**Digi-Pas** inclinometer, the Post photos a blue **angle gauge**. A model trained only on
+Pre photos therefore learns the wrong thing and does poorly on the Post mechanical-tilt
+and azimuth shots.
+
+Confirming photos fixes it, and the confirmations are stored and folded into the next fit:
+
+| Trained on | Per-photo accuracy on Post photos | Correct top pick per sector |
+|---|---|---|
+| Pre photos only | 62% | mech 2/4 · azimuth 2/4 · coverage 4/4 |
+| Pre + confirmed Post photos | **84%** | mech **4/4** · azimuth **4/4** · coverage **4/4** |
+
+Measured leave-one-sector-out — every number is from sectors the model had never seen.
+Confirming two sectors took the remaining two from 4/6 correct to **6/6**. Electrical
+tilt, the category that matters most, is **13/14** with no confirmations at all.
+
+Confirmations are keyed by image content, so re-sending the same photo under a new
+WhatsApp name still counts as answered.
 
 ---
 

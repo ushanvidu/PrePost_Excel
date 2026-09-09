@@ -1,0 +1,19 @@
+# Which electrical-tilt photos show the red-painted ring on the low-band (r1)
+# connector. Established by visual inspection of every tilt photo in GMNIT1.
+# 'ring' = clearly visible, 'edge' = visible but clipped at the frame border,
+# 'none' = not in frame, 'unsure' = excluded from scoring.
+# sector,filename,ring
+S1,WhatsApp Image 2026-09-06 at 19.37.45.jpeg,none
+S1,WhatsApp Image 2026-09-06 at 19.37.47.jpeg,ring
+S1,WhatsApp Image 2026-09-06 at 19.37.50 (1).jpeg,ring
+S1,WhatsApp Image 2026-09-06 at 19.37.52 (2).jpeg,none
+S2,WhatsApp Image 2026-09-06 at 19.38.24.jpeg,unsure
+S2,WhatsApp Image 2026-09-06 at 19.38.31.jpeg,none
+S2,WhatsApp Image 2026-09-06 at 19.38.32.jpeg,ring
+S2,WhatsApp Image 2026-09-06 at 19.38.33 (1).jpeg,none
+S2,WhatsApp Image 2026-09-06 at 19.39.02.jpeg,ring
+S3,WhatsApp Image 2026-09-06 at 19.39.03.jpeg,ring
+S3,WhatsApp Image 2026-09-06 at 19.39.09.jpeg,none
+S3,WhatsApp Image 2026-09-06 at 19.39.10.jpeg,edge
+S4,WhatsApp Image 2026-09-06 at 19.39.48.jpeg,ring
+S4,WhatsApp Image 2026-09-06 at 19.39.49.jpeg,ring

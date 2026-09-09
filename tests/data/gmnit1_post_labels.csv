@@ -1,0 +1,64 @@
+# Held-out test set: all 60 Post photos of GMNIT1, catalogued by eye.
+# The classifier trains only on the labelled Pre photos, never on these,
+# so accuracy measured here is an honest out-of-sample number.
+# sector,filename,category
+S1,WhatsApp Image 2026-09-06 at 19.37.45.jpeg,electrical_tilt
+S1,WhatsApp Image 2026-09-06 at 19.37.45 (1).jpeg,mechanical_tilt
+S1,WhatsApp Image 2026-09-06 at 19.37.46.jpeg,coverage
+S1,WhatsApp Image 2026-09-06 at 19.37.47.jpeg,electrical_tilt
+S1,WhatsApp Image 2026-09-06 at 19.37.47 (1).jpeg,coverage
+S1,WhatsApp Image 2026-09-06 at 19.37.48.jpeg,azimuth
+S1,WhatsApp Image 2026-09-06 at 19.37.48 (1).jpeg,other
+S1,WhatsApp Image 2026-09-06 at 19.37.49.jpeg,azimuth
+S1,WhatsApp Image 2026-09-06 at 19.37.50.jpeg,coverage
+S1,WhatsApp Image 2026-09-06 at 19.37.50 (1).jpeg,electrical_tilt
+S1,WhatsApp Image 2026-09-06 at 19.37.51.jpeg,azimuth
+S1,WhatsApp Image 2026-09-06 at 19.37.52 (1).jpeg,coverage
+S1,WhatsApp Image 2026-09-06 at 19.37.52 (2).jpeg,electrical_tilt
+S1,WhatsApp Image 2026-09-06 at 19.37.53.jpeg,other
+S1,WhatsApp Image 2026-09-06 at 19.37.54.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.24.jpeg,electrical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.25.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.26.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.26 (1).jpeg,other
+S2,WhatsApp Image 2026-09-06 at 19.38.27.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.27 (1).jpeg,azimuth
+S2,WhatsApp Image 2026-09-06 at 19.38.28.jpeg,other
+S2,WhatsApp Image 2026-09-06 at 19.38.29.jpeg,coverage
+S2,WhatsApp Image 2026-09-06 at 19.38.30.jpeg,azimuth
+S2,WhatsApp Image 2026-09-06 at 19.38.30 (1).jpeg,coverage
+S2,WhatsApp Image 2026-09-06 at 19.38.31.jpeg,electrical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.31 (1).jpeg,coverage
+S2,WhatsApp Image 2026-09-06 at 19.38.32.jpeg,electrical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.33.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.33 (1).jpeg,electrical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.38.34.jpeg,mechanical_tilt
+S2,WhatsApp Image 2026-09-06 at 19.39.02.jpeg,electrical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.02 (1).jpeg,other
+S3,WhatsApp Image 2026-09-06 at 19.39.03.jpeg,electrical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.04.jpeg,mechanical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.04 (1).jpeg,mechanical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.05.jpeg,coverage
+S3,WhatsApp Image 2026-09-06 at 19.39.06.jpeg,azimuth
+S3,WhatsApp Image 2026-09-06 at 19.39.07.jpeg,coverage
+S3,WhatsApp Image 2026-09-06 at 19.39.07 (1).jpeg,azimuth
+S3,WhatsApp Image 2026-09-06 at 19.39.08.jpeg,azimuth
+S3,WhatsApp Image 2026-09-06 at 19.39.09.jpeg,electrical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.09 (1).jpeg,mechanical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.10.jpeg,electrical_tilt
+S3,WhatsApp Image 2026-09-06 at 19.39.11.jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.38.jpeg,mechanical_tilt
+S4,WhatsApp Image 2026-09-06 at 19.39.39.jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.40.jpeg,other
+S4,WhatsApp Image 2026-09-06 at 19.39.41.jpeg,mechanical_tilt
+S4,WhatsApp Image 2026-09-06 at 19.39.41 (1).jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.42.jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.43.jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.44.jpeg,mechanical_tilt
+S4,WhatsApp Image 2026-09-06 at 19.39.44 (1).jpeg,azimuth
+S4,WhatsApp Image 2026-09-06 at 19.39.45.jpeg,coverage
+S4,WhatsApp Image 2026-09-06 at 19.39.46.jpeg,mechanical_tilt
+S4,WhatsApp Image 2026-09-06 at 19.39.46 (1).jpeg,coverage
+S4,WhatsApp Image 2026-09-06 at 19.39.47.jpeg,coverage
+S4,WhatsApp Image 2026-09-06 at 19.39.48.jpeg,electrical_tilt
+S4,WhatsApp Image 2026-09-06 at 19.39.49.jpeg,electrical_tilt

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from pathlib import Path
+
 from . import layout
 from .imaging import ImagePreparer
 from .catalog import (
@@ -77,6 +79,7 @@ class SheetPlan:
     sectors: list[SectorPlan] = field(default_factory=list)
     total_rows: int = 0
     placed_photos: int = 0
+    placed_post_photos: int = 0
     missing_slots: list[str] = field(default_factory=list)
 
 
@@ -100,6 +103,7 @@ def _plan_zone(
     start_row: int,
     missing: list[str],
     preparer: ImagePreparer | None,
+    post_photos: dict[tuple[int, str], list[Path]] | None = None,
 ) -> tuple[ZonePlan, int]:
     zone = ZonePlan(title=title, pre_col0=pre_col0, post_col0=post_col0)
     row = start_row
@@ -122,6 +126,9 @@ def _plan_zone(
         if not box_heights:
             box_heights = [layout.DEFAULT_BOX_H_PX // layout.ROW_PX]
 
+        # Post photos, when the classifier has placed any for this slot.
+        matched_post = (post_photos or {}).get((sector, category), [])
+
         top = box_row
         for index, height in enumerate(box_heights):
             photo = photos[index] if index < len(photos) else None
@@ -135,12 +142,21 @@ def _plan_zone(
                     "" if photo else "No Pre photo",
                 )
             )
+            # Post photos arrive as bare paths from the classifier; wrap them so
+            # every slot carries the same shape and the writer needs no special
+            # case.
+            post_path = matched_post[index] if index < len(matched_post) else None
+            post = (
+                Photo(path=post_path, sector=sector, category=category,
+                      sequence=index + 1)
+                if post_path is not None else None
+            )
             plan.slots.append(
                 SlotPlan(
                     layout.Box(post_col0, top, rows=height),
-                    None,
+                    post,
                     "post",
-                    "Paste Post photo here",
+                    "" if post else "Paste Post photo here",
                 )
             )
             top += height + layout.PHOTO_GAP_ROWS
@@ -153,13 +169,20 @@ def _plan_zone(
 
 
 def build_plan(
-    inventory: SiteInventory, preparer: ImagePreparer | None = None
+    inventory: SiteInventory,
+    preparer: ImagePreparer | None = None,
+    post_photos: dict[tuple[int, str], list[Path]] | None = None,
 ) -> SheetPlan:
     """Compute the full sheet plan for one site.
 
     ``preparer`` is used only to read each photo's pixel size, so that boxes can
     be made just tall enough for the photo they hold.  Its results are cached,
     so measuring here costs nothing when the photos are embedded later.
+
+    ``post_photos`` maps ``(sector, survey category)`` to the Post photographs
+    the classifier resolved for that slot.  Anything absent keeps its empty drop
+    box, so a slot the classifier could not resolve still reads as "fill this in
+    by hand" rather than silently carrying a wrong photo.
     """
     plan = SheetPlan(site=inventory.site, title_row=1, subtitle_row=2)
     row = layout.TITLE_ROWS + 1
@@ -180,6 +203,7 @@ def build_plan(
             body_row,
             plan.missing_slots,
             preparer,
+            post_photos,
         )
         right, right_end = _plan_zone(
             "Mechanical Tilt & Azimuth",
@@ -191,6 +215,7 @@ def build_plan(
             body_row,
             plan.missing_slots,
             preparer,
+            post_photos,
         )
 
         sector_plan = SectorPlan(
@@ -212,6 +237,14 @@ def build_plan(
         for zone in (sector.left, sector.right)
         for category in zone.categories
         for slot in category.slots
-        if slot.photo is not None
+        if slot.photo is not None and slot.kind == "pre"
+    )
+    plan.placed_post_photos = sum(
+        1
+        for sector in plan.sectors
+        for zone in (sector.left, sector.right)
+        for category in zone.categories
+        for slot in category.slots
+        if slot.photo is not None and slot.kind == "post"
     )
     return plan

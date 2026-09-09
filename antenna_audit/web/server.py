@@ -42,6 +42,9 @@ def create_app() -> Flask:
     store = JobStore()
     app.extensions["job_store"] = store
 
+    from .review import bp as review_bp
+    app.register_blueprint(review_bp)
+
     @app.get("/")
     def index():
         return render_template("index.html", default_max_dim=DEFAULT_MAX_DIM)

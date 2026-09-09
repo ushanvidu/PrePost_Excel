@@ -17,5 +17,10 @@ output/
 Documents/
 *.xlsx
 
+# Trained model and your confirmations: both are regenerated from your own
+# photos, and confirmations.csv records site and sector names.
+antenna_audit/classify/models/
+confirmations.csv
+
 # macOS
 .DS_Store

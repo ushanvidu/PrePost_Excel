@@ -36,6 +36,36 @@ def _select(inventories, only):
     return chosen
 
 
+def _resolve_post_photos(args: argparse.Namespace, site: str):
+    """Classify this site's Post photos, if a Post folder was supplied."""
+    post_root = getattr(args, "post_root", None)
+    if not post_root:
+        return None
+    site_dir = Path(post_root).expanduser().resolve() / site
+    if not site_dir.is_dir():
+        return None
+
+    from .classify.bands import assign_site, to_post_photos
+    from .classify.predict import load_model
+    from .classify.store import ConfirmationStore
+    from .classify.train import MODEL_FILENAME
+
+    model_dir = Path(args.model_dir).expanduser().resolve()
+    if not (model_dir / MODEL_FILENAME).exists():
+        print(f"  {site:<10} no trained model at {model_dir} — "
+              "run 'antenna-audit classify --retrain' first; "
+              "Post slots left empty")
+        return None
+
+    store = ConfirmationStore(model_dir)
+    assignments = assign_site(site_dir, load_model(model_dir), store)
+    undecided = sum(len(a.needs_decision) for a in assignments.values())
+    if undecided:
+        print(f"  {site:<10} {undecided} Post slot(s) need your decision "
+              "— left empty; use the review screen to fill them")
+    return to_post_photos(assignments)
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     images_root = Path(args.images_root).expanduser().resolve()
     out_dir = Path(args.out).expanduser().resolve()
@@ -59,7 +89,8 @@ def cmd_build(args: argparse.Namespace) -> int:
                 continue
 
             preparer = ImagePreparer(work_root / inventory.site, max_dim=max_dim)
-            plan = build_plan(inventory, preparer)
+            post_photos = _resolve_post_photos(args, inventory.site)
+            plan = build_plan(inventory, preparer, post_photos)
             out_path = out_dir / f"{inventory.site} Antenna Audit Photos.xlsx"
 
             layout_errors = check_plan(plan)
@@ -81,10 +112,12 @@ def cmd_build(args: argparse.Namespace) -> int:
             problems = layout_errors + report.errors
 
             size = _human(out_path.stat().st_size)
+            post_note = (f", {plan.placed_post_photos} Post"
+                         if plan.placed_post_photos else "")
             print(
                 f"  {inventory.site:<10} {len(plan.sectors)} sectors, "
-                f"{result.photos_placed:>3} photos, {plan.total_rows:>4} rows, "
-                f"{size}{saved}"
+                f"{result.photos_placed:>3} photos{post_note}, "
+                f"{plan.total_rows:>4} rows, {size}{saved}"
             )
             if problems:
                 failures += len(problems)
@@ -153,6 +186,57 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_classify(args: argparse.Namespace) -> int:
+    """Rank a site's unlabelled Post photos against the sheet's slots."""
+    from .classify import labels as vis_labels
+    from .classify.predict import SINGLE_SLOT, load_model, predict_site
+    from .classify.store import ConfirmationStore
+    from .classify.train import MODEL_FILENAME, train as train_model
+
+    site_dir = Path(args.site_dir).expanduser().resolve()
+    if not site_dir.is_dir():
+        sys.exit(f"Not a folder: {site_dir}")
+
+    model_dir = Path(args.model_dir).expanduser().resolve()
+    store = ConfirmationStore(model_dir)
+
+    if args.retrain or not (model_dir / MODEL_FILENAME).exists():
+        images_root = Path(args.images_root).expanduser().resolve()
+        rows = store.training_rows([site_dir.parent, images_root])
+        print(f"Training on labelled Pre photos"
+              f"{f' + {len(rows)} confirmed Post photos' if rows else ''}…")
+        scores = train_model(images_root, model_dir, confirmed=rows)
+        print(f"  {scores['n_images']} images, "
+              f"leave-sites-out accuracy {scores['overall_accuracy']:.0%}")
+
+    model = load_model(model_dir)
+    predictions = predict_site(site_dir, model, store)
+
+    for sector, prediction in predictions.items():
+        print(f"\n{site_dir.name} / {sector}  ({len(prediction.photos)} photos)")
+        for category in SINGLE_SLOT:
+            top = prediction.top(category, args.candidates)
+            if not top:
+                continue
+            head = top[0]
+            mark = "confirmed" if head.confirmed else f"{head.score:.0%}"
+            print(f"  {vis_labels.DISPLAY[category]:<16} {head.name}  [{mark}]")
+            for other in top[1:]:
+                print(f"  {'':<16} alt: {other.name}  [{other.score:.0%}]")
+        tilts = prediction.electrical_tilt_photos()
+        print(f"  {'Electrical tilt':<16} {len(tilts)} photo(s)")
+        for candidate in tilts:
+            mark = "confirmed" if candidate.confirmed else f"{candidate.score:.0%}"
+            print(f"  {'':<16} - {candidate.name}  [{mark}]")
+
+    if len(store):
+        print(f"\n{len(store)} confirmation(s) on file — these train the next run.")
+    else:
+        print("\nNo confirmations yet. Confirming a sector or two markedly "
+              "improves the mechanical-tilt and azimuth picks.")
+    return 0
+
+
 def cmd_web(args: argparse.Namespace) -> int:
     from .web.server import serve
 
@@ -181,6 +265,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="embed photos at original resolution")
     build.add_argument("--no-dedupe", action="store_true",
                        help="keep a separate copy of every embedded image")
+    build.add_argument("--post-root",
+                       help="folder of Post photos (one sub-folder per site, "
+                            "each holding S1, S2, … sector folders)")
+    build.add_argument("--model-dir", default="antenna_audit/classify/models",
+                       help="where the trained classifier and your "
+                            "confirmations live")
     build.add_argument("--preview", action="store_true",
                        help="also render a PNG preview of each sheet")
     build.add_argument("--preview-sectors", type=int, default=None,
@@ -198,6 +288,19 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--no-browser", action="store_true",
                      help="do not open a browser window automatically")
     web.set_defaults(func=cmd_web)
+
+    classify = sub.add_parser(
+        "classify", help="rank unlabelled Post photos against the sheet's slots")
+    classify.add_argument("site_dir",
+                          help="folder holding the sector folders (S1, S2, …)")
+    classify.add_argument("--images-root", required=True,
+                          help="labelled Pre photos, used as training data")
+    classify.add_argument("--model-dir", default="antenna_audit/classify/models")
+    classify.add_argument("--candidates", type=int, default=2,
+                          help="alternatives to show per slot (default 2)")
+    classify.add_argument("--retrain", action="store_true",
+                          help="refit before predicting, including confirmations")
+    classify.set_defaults(func=cmd_classify)
 
     return parser
 
