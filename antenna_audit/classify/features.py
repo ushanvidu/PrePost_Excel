@@ -161,6 +161,16 @@ def describe(path: Path) -> np.ndarray:
     parts.append(_object_features(hsv, gray, h, s, v))
     names += OBJECT_FEATURE_NAMES
 
+    # --- instrument signals.
+    # Azimuth must show a compass and mechanical tilt a meter with a reading.
+    # Tried first as hard gates with hand-picked thresholds; measured against
+    # 157 photos the engineers had placed, the strict version recognised 15% of
+    # real compasses and 0% of real meters, and the loose version accepted
+    # everything. So the evidence goes in as features and the classifier decides
+    # how much it is worth, using real Post photos as training data.
+    parts.append(_instrument_features(gray))
+    names += INSTRUMENT_FEATURE_NAMES
+
     parts.append(np.array([_aspect(path)]))
     names.append("aspect")
 
@@ -339,6 +349,53 @@ def _object_features(hsv, gray, h, s, v) -> np.ndarray:
         lcd_score, lcd_fill, lcd_digits,
         vial, roundness,
     ], dtype=np.float32)
+
+
+INSTRUMENT_FEATURE_NAMES = [
+    "dial_radius", "dial_count", "dial_centred",
+    "digits_dark_on_light", "digits_light_on_dark",
+]
+
+
+def _instrument_features(gray: np.ndarray) -> np.ndarray:
+    """Evidence of a compass dial and of a display showing a value."""
+    from .subjects import digit_row_length
+
+    height, width = gray.shape[:2]
+    short_edge = min(width, height)
+
+    # A compass rim is broken by tick marks and numbers, so vote on arcs rather
+    # than looking for a clean contour.
+    circles = cv2.HoughCircles(
+        cv2.medianBlur(gray, 5), cv2.HOUGH_GRADIENT, dp=1.2,
+        minDist=short_edge * 0.35, param1=110, param2=60,
+        minRadius=int(short_edge * 0.13), maxRadius=int(short_edge * 0.62),
+    )
+    if circles is None:
+        dial_radius = dial_count = dial_centred = 0.0
+    else:
+        found = circles[0]
+        best = max(found, key=lambda c: c[2])
+        dial_radius = float(best[2]) / short_edge
+        dial_count = min(len(found), 4) / 4.0
+        # A held-up compass sits near the middle of the frame.
+        dx = (float(best[0]) - width / 2) / max(width, 1)
+        dy = (float(best[1]) - height / 2) / max(height, 1)
+        dial_centred = float(max(0.0, 1.0 - 2.0 * np.hypot(dx, dy)))
+
+    equalised = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(gray)
+    frame_area = float(gray.size)
+    kernel = np.ones((2, 2), np.uint8)
+    scores = []
+    for invert in (cv2.THRESH_BINARY_INV, cv2.THRESH_BINARY):
+        mask = cv2.adaptiveThreshold(
+            equalised, 255, cv2.ADAPTIVE_THRESH_MEAN_C, invert, 31, 12
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        scores.append(min(digit_row_length(mask, frame_area), 8) / 8.0)
+
+    return np.array([dial_radius, dial_count, dial_centred, *scores],
+                    dtype=np.float32)
 
 
 def describe_many(paths: list[Path]) -> np.ndarray:

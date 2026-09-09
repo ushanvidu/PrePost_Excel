@@ -358,15 +358,41 @@ made itself, and only the one for the slot you are replacing.
 Ranking alone put a cable-tag close-up under Mechanical Tilt and a tilt photo under
 Azimuth, so the two instrument slots have a rule on top of the ranking:
 
-| Slot | Only accepts |
+| Slot | Should show |
 |---|---|
-| **Azimuth** | a photo showing a **compass** — a round dial |
-| **Mechanical tilt** | a photo showing the **meter with a reading on it** — a display with digits |
+| **Azimuth** | a **compass** — a round dial |
+| **Mechanical tilt** | the **meter with a reading on it** — a display with digits |
 
-A photo that fails is not placed however well it ranked; the slot says so and offers
-the rejected candidates, so you can overrule the rule when it is wrong. Both checks
-are colour-blind on purpose — the crew changed instruments between rounds, so
-anything keyed to the green Digi-Pas would fail on the blue gauge.
+These started as hard rules that refused any photo failing them. Measured against
+the photos engineers had actually placed, that version accepted 15% of real
+compasses and **none** of the real meters — the thresholds had been tuned on
+synthetic test images, not reality. Loosening them enough to admit the real ones
+made them accept almost everything.
+
+So the evidence now feeds the classifier as a signal rather than a veto, and it is
+trained on real Post photos. The detectors survive as the readable half: the review
+screen shows *why* a photo looked like a compass or a display. Both are
+colour-blind on purpose — the crew has used a green Digi-Pas, a blue angle gauge
+and a SHAHE inclinometer, so anything keyed to colour fails on the next one.
+
+### Teach it from workbooks you have already finished
+
+A completed sheet is labelled training data that costs nobody extra work: every
+Post photo in it sits under a heading a person chose, and the image is stored
+inside the file.
+
+```bash
+python -m antenna_audit learn /path/to/Completed \
+    --images-root Documents/IMAGE-P202506262207_D001-20260
+```
+
+Reading seven finished workbooks gave 157 labelled Post photos and took the
+mechanical-tilt pick from 2 sectors in 4 to 22 in 25. Full figures, including
+what was tried and rejected, are in [docs/accuracy.md](docs/accuracy.md).
+
+Measured leave-one-site-out, so every site is predicted by a model that never saw
+it: **95% of placements correct** (53 right, 3 wrong), with 19 slots deferred to
+you rather than guessed.
 
 ### It learns from your confirmations
 

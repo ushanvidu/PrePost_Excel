@@ -12,9 +12,19 @@ plainly:
 * **Mechanical tilt** must show a **meter displaying a reading** — a panel with
   digits on it.
 
-A photo that fails its gate is not placed, however well it ranked. The slot is
-offered for review instead, because an empty slot with a reason beats a
-confident wrong answer in an audit document.
+These checks are **advisory**, and that is a deliberate correction. They started
+as hard gates that refused to place a photo failing them, with thresholds picked
+by eye on synthetic test images. Measured against 157 photos the engineers had
+actually placed, the strict version accepted 15% of real compasses and **none**
+of the real meters; loosening it far enough to admit the real ones made it
+accept nearly everything. Neither is a usable gate.
+
+What the evidence is good for is *ranking* and *explaining*. The same signals now
+feed the classifier as features (see `features.py`), where they are weighed
+against everything else and trained on real Post photos, which lifted the
+mechanical-tilt pick from 2 sectors in 4 to 22 in 25. These functions remain as
+the human-readable half: they say why a photo looks like a compass or a display,
+and that reason is shown in the review screen.
 
 The detectors are deliberately colour-agnostic. The survey crew changed
 instruments between rounds — the Pre photos show a green Digi-Pas inclinometer,
@@ -34,23 +44,25 @@ from PIL import Image, ImageOps
 # Analysis size: big enough for a dial rim and LCD digits to survive.
 WORK_LONG_EDGE = 640
 
-# A dial must be at least this round (1.0 is a perfect circle) and occupy at
-# least this share of the frame before it counts as a compass.
-DIAL_CIRCULARITY_MIN = 0.62
-DIAL_AREA_MIN = 0.012
+# A dial is found with a Hough circle transform rather than by contour
+# roundness. On a real compass the rim is broken up by tick marks, bearing
+# numbers and a knurled bezel, and the background is usually foliage, so the
+# external contour is never close to a circle — measured against 34 photos the
+# engineers actually placed, contour roundness recognised 5 of them. Hough votes
+# on arcs instead and does not care that the outline is interrupted.
+DIAL_RADIUS_MIN_FRACTION = 0.13     # of the frame's short edge
+DIAL_RADIUS_MAX_FRACTION = 0.62
 
-# A reading needs a bright panel holding this many separate dark glyphs.
+# A reading is a row of similar glyphs on a display. Both polarities have to be
+# accepted: the survey has used a grey LCD with dark digits *and* a SHAHE
+# inclinometer with a dark LCD and bright green digits. Assuming dark-on-light
+# recognised 0 of the 31 photos the engineers actually placed.
 READING_MIN_DIGITS = 2
-PANEL_AREA_MIN = 0.006
-# A display is part of an instrument, never the whole frame. Without an upper
-# bound a pale background counts as one enormous panel and the dark hardware in
-# front of it counts as digits.
-PANEL_AREA_MAX = 0.45
-# A display is rectangular. A disc fills only pi/4 = 0.785 of its bounding box,
-# so this floor is what stops a compass dial being read as a panel. It is
-# measured on the panel's *outer* contour: the digits punch holes in the panel,
-# and counting those holes as missing area rejected genuine displays.
-PANEL_FILL_MIN = 0.82
+GLYPH_AREA_MIN = 0.00012            # of the frame
+GLYPH_AREA_MAX = 0.06
+# Digits in a reading share a height and sit on a line. Photos are often taken
+# rotated, so alignment is checked along the row's own axis, not the frame's.
+GLYPH_HEIGHT_TOLERANCE = 0.42
 
 
 @dataclass
@@ -78,120 +90,112 @@ def _load_gray_hsv(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def has_compass_dial(path: Path) -> SubjectCheck:
-    """True when a round dial fills a real part of the frame.
+    """True when a large round dial is in frame.
 
-    A compass is held up to the camera, so its dial is large and close to a
-    circle. Antenna hardware in these photos is rectilinear — connectors are
-    small, and the tilt scale is a straight strip — so roundness at this size is
-    a strong signal that separates a compass from everything else on the tower.
+    Uses a Hough circle transform: a compass rim is interrupted by tick marks,
+    numbers and a knurled bezel, so it is never a clean contour, but it does vote
+    strongly as a circle. Antenna hardware in these photos is rectilinear and the
+    tilt scale is a straight strip, so a circle this large is a compass.
     """
-    gray, hsv = _load_gray_hsv(path)
-    frame_area = float(gray.size)
+    gray, _ = _load_gray_hsv(path)
+    height, width = gray.shape[:2]
+    short_edge = min(width, height)
 
-    edges = cv2.Canny(cv2.medianBlur(gray, 5), 40, 130)
-    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8))
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    best_score = 0.0
-    best_area = 0.0
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < frame_area * DIAL_AREA_MIN:
-            continue
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter <= 0:
-            continue
-        circularity = 4 * np.pi * area / (perimeter ** 2)
-        if circularity < DIAL_CIRCULARITY_MIN:
-            continue
-        # A dial is filled, not a thin ring of foliage: check the enclosing
-        # circle is mostly covered by the contour.
-        (_, _), radius = cv2.minEnclosingCircle(contour)
-        coverage = area / max(np.pi * radius * radius, 1.0)
-        if coverage < 0.55:
-            continue
-        score = min(circularity, 1.0) * min(area / (frame_area * 0.08), 1.0)
-        if score > best_score:
-            best_score, best_area = score, area / frame_area
-
-    if best_score > 0:
+    blurred = cv2.medianBlur(gray, 5)
+    circles = cv2.HoughCircles(
+        blurred, cv2.HOUGH_GRADIENT, dp=1.2,
+        minDist=short_edge * 0.35,
+        param1=110, param2=55,
+        minRadius=int(short_edge * DIAL_RADIUS_MIN_FRACTION),
+        maxRadius=int(short_edge * DIAL_RADIUS_MAX_FRACTION),
+    )
+    if circles is None:
         return SubjectCheck(
-            passed=True, score=float(min(best_score * 2.2, 1.0)),
-            reasons=[f"round dial found, filling {best_area:.0%} of the frame"],
+            passed=False, score=0.0, reasons=["no round compass dial in frame"]
         )
+
+    best = max(circles[0], key=lambda c: c[2])
+    radius = float(best[2])
+    fraction = (np.pi * radius * radius) / float(width * height)
     return SubjectCheck(
-        passed=False, score=0.0,
-        reasons=["no round compass dial in frame"],
+        passed=True,
+        score=float(min(0.45 + fraction * 2.0, 1.0)),
+        reasons=[f"round dial found, filling {fraction:.0%} of the frame"],
     )
 
 
+def digit_row_length(mask: np.ndarray, frame_area: float) -> int:
+    """Count glyphs in the largest row of similar, aligned blobs in a mask."""
+    count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    glyphs = []
+    for index in range(1, count):
+        area = float(stats[index, cv2.CC_STAT_AREA])
+        if not frame_area * GLYPH_AREA_MIN <= area <= frame_area * GLYPH_AREA_MAX:
+            continue
+        w = int(stats[index, cv2.CC_STAT_WIDTH])
+        h = int(stats[index, cv2.CC_STAT_HEIGHT])
+        if w < 3 or h < 5:
+            continue
+        if max(w, h) / max(min(w, h), 1) > 6.0:
+            continue                       # a bar or a cable, not a digit
+        glyphs.append((float(centroids[index][0]), float(centroids[index][1]),
+                       max(w, h)))
+    if len(glyphs) < READING_MIN_DIGITS:
+        return 0
+
+    # Group by similar size, then require them to lie on a line. Photos are
+    # often rotated, so the line may run in any direction.
+    best = 0
+    for cx, cy, size in glyphs:
+        peers = [g for g in glyphs
+                 if abs(g[2] - size) <= size * GLYPH_HEIGHT_TOLERANCE]
+        if len(peers) < READING_MIN_DIGITS:
+            continue
+        xs = np.array([g[0] for g in peers])
+        ys = np.array([g[1] for g in peers])
+        # Spread along the row's own axis must dominate spread across it.
+        centred = np.vstack([xs - xs.mean(), ys - ys.mean()])
+        if centred.shape[1] < 2:
+            continue
+        _, singular, _ = np.linalg.svd(centred, full_matrices=False)
+        along, across = float(singular[0]), float(singular[1])
+        if along > max(across, 1e-6) * 1.6 and along > size:
+            best = max(best, len(peers))
+    return best
+
+
 def has_meter_reading(path: Path) -> SubjectCheck:
-    """True when a display panel showing digits is in frame.
+    """True when a display showing a value is in frame.
 
-    Any inclinometer in this survey has a light LCD carrying large dark digits.
-    Requiring the digits — not merely the instrument — is what the rule asks for:
-    a photo of the meter with a blank or unreadable display does not evidence a
-    measurement.
+    Looks for a row of similar glyphs in *either* polarity — dark digits on a
+    pale LCD, and bright digits on a dark LCD. The survey has used both, and
+    assuming one of them recognised none of the photos the engineers placed.
     """
-    gray, hsv = _load_gray_hsv(path)
-    saturation, value = hsv[:, :, 1], hsv[:, :, 2]
+    gray, _ = _load_gray_hsv(path)
     frame_area = float(gray.size)
+    equalised = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(gray)
 
-    # Candidate panels: pale, low-saturation, solid rectangles.
-    panel = ((saturation < 80) & (value > 105) & (value < 252)).astype(np.uint8)
-    panel = cv2.morphologyEx(panel, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    # RETR_EXTERNAL so a panel is measured by its outer boundary, holes and all.
-    contours, _ = cv2.findContours(panel, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    dark_on_light = cv2.adaptiveThreshold(
+        equalised, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 31, 12
+    )
+    light_on_dark = cv2.adaptiveThreshold(
+        equalised, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 31, 12
+    )
+    kernel = np.ones((2, 2), np.uint8)
 
+    # Both polarities are tried and the stronger row wins. Which one produced it
+    # is deliberately not reported: on a dark LCD the gaps between bright digits
+    # also read as a row, so naming the polarity would be a guess.
     best_digits = 0
-    best_score = 0.0
-    for contour in contours:
-        area = float(cv2.contourArea(contour))
-        if not frame_area * PANEL_AREA_MIN <= area <= frame_area * PANEL_AREA_MAX:
-            continue
-        x, y, w, h = cv2.boundingRect(contour)
-        if w < 12 or h < 8:
-            continue
-        fill = area / max(float(w * h), 1.0)
-        aspect = max(w, h) / max(min(w, h), 1.0)
-        if fill < PANEL_FILL_MIN or aspect > 7.0:
-            continue
-
-        inside = gray[y:y + h, x:x + w]
-        if inside.size < 60:
-            continue
-        # Digits are markedly darker than the panel they sit on.
-        threshold = max(int(inside.mean()) - 30, 15)
-        dark = (inside < threshold).astype(np.uint8)
-        n_glyphs, _, glyph_stats, _ = cv2.connectedComponentsWithStats(
-            dark, connectivity=8
-        )
-        # Digits sit in a row: similar heights, roughly aligned tops.
-        glyphs = []
-        for g in range(1, n_glyphs):
-            g_area = glyph_stats[g, cv2.CC_STAT_AREA]
-            g_h = int(glyph_stats[g, cv2.CC_STAT_HEIGHT])
-            g_top = int(glyph_stats[g, cv2.CC_STAT_TOP])
-            if inside.size * 0.008 < g_area < inside.size * 0.4 and g_h > h * 0.15:
-                glyphs.append((g_top, g_h))
-        digits = 0
-        if len(glyphs) >= READING_MIN_DIGITS:
-            median_h = sorted(g[1] for g in glyphs)[len(glyphs) // 2]
-            median_top = sorted(g[0] for g in glyphs)[len(glyphs) // 2]
-            digits = sum(
-                1 for top, gh in glyphs
-                if abs(gh - median_h) <= median_h * 0.45
-                and abs(top - median_top) <= median_h * 0.6
-            )
-        if digits >= READING_MIN_DIGITS:
-            score = min(digits / 4.0, 1.0) * min(area / (frame_area * 0.05), 1.0)
-            if score > best_score:
-                best_score, best_digits = score, digits
+    for mask in (dark_on_light, light_on_dark):
+        cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        best_digits = max(best_digits, digit_row_length(cleaned, frame_area))
 
     if best_digits >= READING_MIN_DIGITS:
         return SubjectCheck(
-            passed=True, score=float(min(best_score * 2.0, 1.0)),
-            reasons=[f"display panel showing {best_digits} digits"],
+            passed=True,
+            score=float(min(0.4 + 0.15 * best_digits, 1.0)),
+            reasons=[f"display showing {best_digits} digits"],
         )
     return SubjectCheck(
         passed=False, score=0.0,

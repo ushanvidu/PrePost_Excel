@@ -109,22 +109,16 @@ def assign_sector(
         ranked = [c for c in prediction.ranked.get(category, [])
                   if c.path not in used and c.path not in reserved]
 
-        # Azimuth must show a compass; mechanical tilt must show a meter with a
-        # reading on it. Ranking alone put a cable-tag close-up under M Tilt and
-        # a tilt photo under Azimuth, so the top-ranked photo is not enough —
-        # it has to contain the right instrument.
+        # Azimuth should show a compass and mechanical tilt a meter with a
+        # reading. These checks are evidence shown to you, not a veto: measured
+        # against photos the engineers had placed, a strict version rejected
+        # almost every genuine instrument. The classifier weighs the same
+        # signals as features instead, trained on real Post photos.
         checks: dict[Path, subjects.SubjectCheck] = {}
-        eligible = []
-        for candidate in ranked:
-            if candidate.confirmed:
-                eligible.append(candidate)      # your decision overrides the gate
-                continue
-            result = subjects.check(category, candidate.path)
-            checks[candidate.path] = result
-            if result.passed:
-                eligible.append(candidate)
-        rejected = len(ranked) - len(eligible)
-        ranked = eligible
+        for candidate in ranked[:3]:
+            if not candidate.confirmed:
+                checks[candidate.path] = subjects.check(category, candidate.path)
+        rejected = 0
 
         slot = SlotFill(row=row)
         if row in manual:
@@ -159,21 +153,7 @@ def assign_sector(
             slot.alternatives = [c.path for c in ranked[:3]]
         else:
             slot.needs_decision = True
-            if rejected:
-                subject = ("a compass" if category == labels.AZIMUTH
-                           else "a meter showing a reading")
-                slot.reasons.append(
-                    f"no photo in this sector shows {subject} — "
-                    f"{rejected} candidate(s) ranked well but were rejected on "
-                    f"what they actually contain"
-                )
-                # Still offer them, so you can overrule the gate if it is wrong.
-                slot.alternatives = [
-                    c.path for c in prediction.ranked.get(category, [])[:3]
-                    if c.path not in used
-                ]
-            else:
-                slot.reasons.append("no candidate found in this sector")
+            slot.reasons.append("no candidate found in this sector")
         assignment.slots[row] = slot
 
     # --- electrical tilt: split low band from high band ----------------------

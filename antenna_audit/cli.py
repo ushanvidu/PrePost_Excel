@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import shutil
 import sys
 import tempfile
@@ -193,6 +194,80 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_learn(args: argparse.Namespace) -> int:
+    """Learn from workbooks you have already filled in by hand.
+
+    A finished sheet is labelled training data that costs nobody any extra work:
+    every Post photo in it sits under a heading a person chose, and the image is
+    stored inside the file.
+    """
+    from .catalog import (
+        ELECTRICAL_TILT_CATEGORIES, MECHANICAL_AZIMUTH_CATEGORIES, heading_for,
+    )
+    from .classify import labels as vis_labels
+    from .classify.completed import extract_all
+    from .classify.store import ConfirmationStore
+    from .classify.train import train as train_model
+
+    completed = Path(args.completed).expanduser().resolve()
+    if not completed.is_dir():
+        sys.exit(f"Not a folder: {completed}")
+    images_root = Path(args.images_root).expanduser().resolve()
+    model_dir = Path(args.model_dir).expanduser().resolve()
+
+    rows = list(ELECTRICAL_TILT_CATEGORIES) + list(MECHANICAL_AZIMUTH_CATEGORIES)
+
+    def survey_row(heading: str, sector: int) -> str | None:
+        for candidate in rows:
+            if heading_for(candidate, sector) == heading:
+                return candidate
+        return None
+
+    placed = [p for p in extract_all(completed) if p.kind == "post"]
+    if not placed:
+        sys.exit(f"No placed Post photos found in the workbooks under {completed}")
+
+    learned_dir = model_dir / "learned"
+    learned_dir.mkdir(parents=True, exist_ok=True)
+    store = ConfirmationStore(model_dir)
+
+    seen: set[str] = set()
+    added = 0
+    per_class: Counter = Counter()
+    for photo in placed:
+        row = survey_row(photo.row, photo.sector)
+        if row is None or photo.digest in seen:
+            continue
+        seen.add(photo.digest)
+        target = learned_dir / photo.filename
+        if not target.exists():
+            target.write_bytes(photo.data)
+        category = vis_labels.visual_class(row)
+        store.add(target, site=photo.site, sector=f"S{photo.sector}",
+                  category=category, port=row)
+        per_class[category] += 1
+        added += 1
+    store.save()
+
+    print(f"Read {len(placed)} placed Post photos from "
+          f"{len(list(completed.glob('*.xlsx')))} workbook(s); "
+          f"{added} distinct images learned.")
+    for name, count in per_class.most_common():
+        print(f"  {name:<20}{count:>4}")
+
+    print("\nRetraining…")
+    scores = train_model(
+        images_root, model_dir,
+        confirmed=store.training_rows([learned_dir, images_root]),
+    )
+    print(f"  {scores['n_images']} images "
+          f"({scores['confirmed_used']} of them yours), "
+          f"leave-sites-out accuracy {scores['overall_accuracy']:.0%}")
+    for name, stats in scores["per_class"].items():
+        print(f"    {name:<20}recall {stats['recall']:.0%}")
+    return 0
+
+
 def cmd_classify(args: argparse.Namespace) -> int:
     """Rank a site's unlabelled Post photos against the sheet's slots."""
     from .classify import labels as vis_labels
@@ -308,6 +383,15 @@ def build_parser() -> argparse.ArgumentParser:
     classify.add_argument("--retrain", action="store_true",
                           help="refit before predicting, including confirmations")
     classify.set_defaults(func=cmd_classify)
+
+    learn = sub.add_parser(
+        "learn", help="learn from workbooks you have already filled in by hand")
+    learn.add_argument("completed",
+                       help="folder of finished .xlsx workbooks")
+    learn.add_argument("--images-root", required=True,
+                       help="labelled Pre photos, used alongside them")
+    learn.add_argument("--model-dir", default="antenna_audit/classify/models")
+    learn.set_defaults(func=cmd_learn)
 
     return parser
 
