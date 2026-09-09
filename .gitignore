@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Generated workbooks and previews
+output/
+
+# Survey photo sets and client workbooks.
+# These are field data, not source: they carry site IDs and GPS coordinates
+# burned into the images. Keep them out of the repository.
+Documents/
+*.xlsx
+
+# macOS
+.DS_Store

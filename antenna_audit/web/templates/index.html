@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antenna Audit Photo Sheets</title>
+<style>
+  :root {
+    --bg: #f6f7f9;  --panel: #ffffff;  --ink: #1f2933;  --muted: #5b6672;
+    --faint: #9aa5b1;  --line: #e1e5ea;  --accent: #1f6feb;  --accent-soft: #eaf1fd;
+    --ok: #2f7a43;  --ok-soft: #e8f5ec;  --warn: #9a6b12;  --warn-soft: #fdf5e4;
+    --bad: #b04a4a;  --bad-soft: #fdeeee;  --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181d;  --panel: #1b2026;  --ink: #e8ecf1;  --muted: #a3aeba;
+      --faint: #6b7783;  --line: #2b323a;  --accent: #6ea8fe;
+      --accent-soft: #1d2836;  --ok: #7fd39a;  --ok-soft: #1a2a20;
+      --warn: #e5bb63;  --warn-soft: #2b2415;  --bad: #f08a8a;  --bad-soft: #2e1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.2px; }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 22px; margin-bottom: 18px;
+  }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+  .tab {
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+    padding: 8px 14px; border-radius: 999px; cursor: pointer; font-size: 14px;
+    font-family: inherit;
+  }
+  .tab[aria-selected="true"] {
+    background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+    font-weight: 600;
+  }
+  #drop {
+    border: 2px dashed var(--line); border-radius: var(--radius);
+    padding: 44px 24px; text-align: center; transition: .15s; cursor: pointer;
+  }
+  #drop.hot { border-color: var(--accent); background: var(--accent-soft); }
+  #drop h2 { margin: 0 0 6px; font-size: 17px; }
+  #drop p { margin: 0; color: var(--muted); font-size: 14px; }
+  .btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 11px 20px; font-size: 15px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+  }
+  .btn.small { padding: 7px 14px; font-size: 13px; }
+  label.field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--bg); color: var(--ink);
+    font: inherit; font-size: 14px;
+  }
+  .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .row > .grow { flex: 1 1 320px; }
+  .opts { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .opts .row { align-items: center; }
+  .hint { font-size: 12.5px; color: var(--faint); margin-top: 6px; }
+  .queue { margin-top: 16px; font-size: 14px; color: var(--muted); }
+  .chip {
+    display: inline-block; background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px; margin: 3px 4px 0 0;
+    font-weight: 600;
+  }
+  .bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 4px 0 18px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+  .site {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px; background: var(--panel);
+  }
+  .site header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .site .name { font-weight: 700; }
+  .site .meta { color: var(--muted); font-size: 13.5px; margin-left: auto; }
+  .badge {
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; padding: 3px 9px; border-radius: 999px;
+  }
+  .b-waiting { background: var(--line); color: var(--muted); }
+  .b-building { background: var(--accent-soft); color: var(--accent); }
+  .b-done { background: var(--ok-soft); color: var(--ok); }
+  .b-skipped { background: var(--warn-soft); color: var(--warn); }
+  .b-failed { background: var(--bad-soft); color: var(--bad); }
+  .note { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+  .note.warn { color: var(--warn); }
+  .note.bad { color: var(--bad); }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: var(--muted); }
+  .actions { display: flex; gap: 10px; margin: 18px 0 6px; flex-wrap: wrap; align-items: center; }
+  .err {
+    background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad);
+    border-radius: 8px; padding: 11px 14px; font-size: 14px; margin-bottom: 16px;
+  }
+  .hidden { display: none !important; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Antenna Audit Photo Sheets</h1>
+  <p class="lede">Each folder of survey photos becomes its own Excel workbook, with the
+     Pre photos placed under their headings and empty boxes ready for the Post photos.</p>
+
+  <div class="panel" id="input-panel">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true"  data-mode="upload">Upload folders</button>
+      <button class="tab" role="tab" aria-selected="false" data-mode="local">Folder on this computer</button>
+    </div>
+
+    <div id="pane-upload">
+      <div id="drop">
+        <h2>Drop your photo folders here</h2>
+        <p>One workbook per folder. You can drop several at once — or click to choose one.</p>
+      </div>
+      <input id="picker" type="file" webkitdirectory directory multiple class="hidden">
+      <div class="queue" id="queue"></div>
+    </div>
+
+    <div id="pane-local" class="hidden">
+      <div class="row">
+        <div class="grow">
+          <label class="field" for="path">Full path to the folder holding your site folders</label>
+          <input id="path" type="text" spellcheck="false"
+                 placeholder="/Users/you/Documents/IMAGE-P202506262207_D001-20260">
+        </div>
+      </div>
+      <p class="hint">Read straight from disk — nothing is copied, so this is much faster
+         for large photo sets. Point it at a folder of site folders, or at a single site folder.</p>
+    </div>
+
+    <div class="opts">
+      <div class="row">
+        <div style="flex:0 0 190px">
+          <label class="field" for="maxDim">Photo quality</label>
+          <select id="maxDim" style="width:100%;padding:10px 12px;border:1px solid var(--line);
+                  border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px">
+            <option value="{{ default_max_dim }}" selected>Standard — smaller files</option>
+            <option value="3200">High</option>
+            <option value="0">Full resolution — very large files</option>
+          </select>
+        </div>
+        <button class="btn" id="go" disabled>Build workbooks</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="error" class="err hidden"></div>
+
+  <div class="panel hidden" id="results">
+    <div class="row" style="align-items:center">
+      <strong id="progress-label" style="flex:1">Building…</strong>
+      <span class="meta" id="progress-count"></span>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div id="sites"></div>
+    <div class="actions">
+      <button class="btn hidden" id="download-all">Download all as .zip</button>
+      <button class="btn ghost hidden" id="again">Build another set</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let mode = 'upload';
+let picked = new Map();   // site name -> File[]
+let poll = null;
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    mode = tab.dataset.mode;
+    document.querySelectorAll('.tab').forEach(t =>
+      t.setAttribute('aria-selected', String(t === tab)));
+    $('#pane-upload').classList.toggle('hidden', mode !== 'upload');
+    $('#pane-local').classList.toggle('hidden', mode !== 'local');
+    refreshGo();
+  };
+});
+
+/* ---------- collecting files ---------- */
+function addFiles(files) {
+  for (const file of files) {
+    const rel = (file.webkitRelativePath || file._rel || file.name).replace(/\\/g, '/');
+    const parts = rel.split('/').filter(p => p && p !== '.' && p !== '..');
+    if (parts.length < 2) continue;                 // a loose file, not in a folder
+    const name = parts[parts.length - 1];
+    if (name.startsWith('.')) continue;             // .DS_Store and friends
+    const site = parts[parts.length - 2];           // folder directly holding the photo
+    if (!picked.has(site)) picked.set(site, []);
+    picked.get(site).push(file);
+  }
+  renderQueue();
+}
+
+function renderQueue() {
+  const q = $('#queue');
+  if (!picked.size) { q.innerHTML = ''; refreshGo(); return; }
+  const total = [...picked.values()].reduce((n, f) => n + f.length, 0);
+  q.innerHTML = `<div style="margin-bottom:6px">
+      <strong>${picked.size}</strong> folder${picked.size > 1 ? 's' : ''} ready
+      · ${total} photos</div>` +
+    [...picked.entries()].sort()
+      .map(([s, f]) => `<span class="chip">${esc(s)} · ${f.length}</span>`).join('');
+  refreshGo();
+}
+
+function refreshGo() {
+  $('#go').disabled = mode === 'upload' ? picked.size === 0 : false;
+}
+
+/* ---------- drag and drop (walks whole folder trees) ---------- */
+const drop = $('#drop');
+drop.onclick = () => $('#picker').click();
+$('#picker').onchange = e => addFiles(e.target.files);
+
+['dragenter', 'dragover'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hot'); }));
+['dragleave', 'drop'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hot'); }));
+
+drop.addEventListener('drop', async e => {
+  e.preventDefault();
+  const entries = [...e.dataTransfer.items]
+    .map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) { addFiles(e.dataTransfer.files); return; }
+  const collected = [];
+  await Promise.all(entries.map(entry => walk(entry, '', collected)));
+  addFiles(collected);
+});
+
+function walk(entry, prefix, out) {
+  return new Promise(resolve => {
+    const path = prefix ? prefix + '/' + entry.name : entry.name;
+    if (entry.isFile) {
+      entry.file(file => { file._rel = path; out.push(file); resolve(); }, resolve);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const read = () => reader.readEntries(batch => {
+        if (!batch.length) {
+          Promise.all(all.map(c => walk(c, path, out))).then(resolve);
+        } else { all.push(...batch); read(); }
+      }, resolve);
+      read();
+    } else resolve();
+  });
+}
+
+/* ---------- starting a build ---------- */
+$('#go').onclick = async () => {
+  showError('');
+  $('#go').disabled = true;
+  try {
+    const maxDim = $('#maxDim').value;
+    let res;
+    if (mode === 'local') {
+      res = await fetch('/api/build-local', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ path: $('#path').value, maxDim }),
+      });
+    } else {
+      const body = new FormData();
+      body.append('maxDim', maxDim);
+      for (const [site, files] of picked)
+        for (const f of files) body.append('files', f, site + '/' + f.name);
+      $('#progress-label').textContent = 'Uploading…';
+      $('#results').classList.remove('hidden');
+      res = await fetch('/api/build', { method: 'POST', body });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'The build could not be started.');
+    $('#input-panel').classList.add('hidden');
+    $('#results').classList.remove('hidden');
+    track(data.id);
+  } catch (err) {
+    showError(err.message);
+    $('#go').disabled = false;
+  }
+};
+
+/* ---------- progress ---------- */
+function track(id) {
+  $('#progress-label').textContent = 'Building…';
+  const tick = async () => {
+    const res = await fetch('/api/job/' + id);
+    if (!res.ok) { clearInterval(poll); showError('This build has expired.'); return; }
+    const job = await res.json();
+    render(job, id);
+    if (job.state === 'done' || job.state === 'failed') {
+      clearInterval(poll);
+      finish(job, id);
+    }
+  };
+  tick();
+  poll = setInterval(tick, 700);
+}
+
+function render(job, id) {
+  const pct = job.total ? Math.round(100 * job.completed / job.total) : 0;
+  $('#bar').style.width = pct + '%';
+  $('#progress-count').textContent = job.total
+    ? `${job.completed} of ${job.total} folders` : '';
+  $('#sites').innerHTML = job.sites.map(s => card(s, id)).join('');
+}
+
+function card(s, id) {
+  const size = s.sizeBytes ? ` · ${(s.sizeBytes / 1048576).toFixed(1)} MB` : '';
+  let meta = '';
+  if (s.state === 'done')
+    meta = `${s.sectors} sectors · ${s.photosPlaced} photos${size}`;
+  else if (s.state === 'building') meta = 'building…';
+  else if (s.photosFound) meta = `${s.photosFound} photos found`;
+
+  let body = '';
+  if (s.message)
+    body += `<div class="note ${s.state === 'failed' ? 'bad' : 'warn'}">${esc(s.message)}</div>`;
+  if (s.problems && s.problems.length)
+    body += list('Problems', s.problems, 'bad');
+  if (s.missing && s.missing.length)
+    body += list(`${s.missing.length} heading(s) with no Pre photo`, s.missing);
+  if (s.unplaced && Object.keys(s.unplaced).length)
+    body += list('Photos found but not on the sheet by design',
+      Object.entries(s.unplaced).map(([k, v]) => `${k.replace(/_/g, ' ')} × ${v}`));
+
+  const dl = s.state === 'done'
+    ? `<a class="btn small ghost" style="text-decoration:none"
+          href="/api/job/${id}/file/${encodeURIComponent(s.filename)}">Download</a>` : '';
+
+  return `<div class="site">
+    <header>
+      <span class="name">${esc(s.name)}</span>
+      <span class="badge b-${s.state}">${s.state}</span>
+      <span class="meta">${meta}</span>
+      ${dl}
+    </header>${body}</div>`;
+}
+
+function list(title, items, cls) {
+  return `<details><summary class="${cls || ''}">${esc(title)}</summary><ul>` +
+    items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul></details>';
+}
+
+function finish(job, id) {
+  const ok = job.readyCount;
+  $('#progress-label').textContent = ok
+    ? `Done — ${ok} workbook${ok > 1 ? 's' : ''} ready`
+    : 'Finished, but nothing could be built';
+  $('#bar').style.width = '100%';
+  if (job.error) showError(job.error);
+  const all = $('#download-all');
+  all.classList.toggle('hidden', ok === 0);
+  all.onclick = () => location.href = `/api/job/${id}/all`;
+  $('#again').classList.remove('hidden');
+}
+
+$('#again').onclick = () => location.reload();
+
+function showError(msg) {
+  const box = $('#error');
+  box.textContent = msg;
+  box.classList.toggle('hidden', !msg);
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
