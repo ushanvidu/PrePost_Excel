@@ -41,13 +41,13 @@
     background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
     font-weight: 600;
   }
-  #drop {
+  #drop, #drop-post {
     border: 2px dashed var(--line); border-radius: var(--radius);
-    padding: 44px 24px; text-align: center; transition: .15s; cursor: pointer;
+    padding: 30px 24px; text-align: center; transition: .15s; cursor: pointer;
   }
-  #drop.hot { border-color: var(--accent); background: var(--accent-soft); }
-  #drop h2 { margin: 0 0 6px; font-size: 17px; }
-  #drop p { margin: 0; color: var(--muted); font-size: 14px; }
+  #drop.hot, #drop-post.hot { border-color: var(--accent); background: var(--accent-soft); }
+  #drop h2, #drop-post h2 { margin: 0 0 6px; font-size: 16px; }
+  #drop p, #drop-post p { margin: 0; color: var(--muted); font-size: 13.5px; }
   .btn {
     background: var(--accent); color: #fff; border: 0; border-radius: 8px;
     padding: 11px 20px; font-size: 15px; font-weight: 600; cursor: pointer;
@@ -111,9 +111,9 @@
 <body>
 <div class="wrap">
   <h1>Antenna Audit Photo Sheets</h1>
-  <p class="lede">Each folder of survey photos becomes its own Excel workbook, with the
-     Pre photos placed under their headings and empty boxes ready for the Post photos.
-     <a href="/review" style="color:var(--accent)">Have Post photos to place? Review them here →</a></p>
+  <p class="lede">Give it your Pre photos and, if you have them, your Post photos.
+     Each site becomes one finished Excel workbook you can download.
+     <a href="/review" style="color:var(--accent)">Check the Post placements before building →</a></p>
 
   <div class="panel" id="input-panel">
     <div class="tabs" role="tablist">
@@ -122,12 +122,21 @@
     </div>
 
     <div id="pane-upload">
+      <label class="field">Pre photos — the survey export, one folder per site</label>
       <div id="drop">
-        <h2>Drop your photo folders here</h2>
-        <p>One workbook per folder. You can drop several at once — or click to choose one.</p>
+        <h2>Drop your Pre photo folders here</h2>
+        <p>One workbook per folder. Drop several at once, or click to choose one.</p>
       </div>
       <input id="picker" type="file" webkitdirectory directory multiple class="hidden">
       <div class="queue" id="queue"></div>
+
+      <label class="field" style="margin-top:18px">Post photos <span style="color:var(--faint)">— optional, one folder per site, each holding S1, S2, …</span></label>
+      <div id="drop-post">
+        <h2>Drop your Post photo folders here</h2>
+        <p>Leave this empty to get a sheet with blank Post boxes to fill in by hand.</p>
+      </div>
+      <input id="picker-post" type="file" webkitdirectory directory multiple class="hidden">
+      <div class="queue" id="queue-post"></div>
     </div>
 
     <div id="pane-local" class="hidden">
@@ -138,8 +147,16 @@
                  placeholder="/Users/you/Documents/IMAGE-P202506262207_D001-20260">
         </div>
       </div>
+      <div class="row" style="margin-top:12px">
+        <div class="grow">
+          <label class="field" for="postPath">Post photos folder <span style="color:var(--faint)">— optional</span></label>
+          <input id="postPath" type="text" spellcheck="false"
+                 placeholder="/Users/you/Documents/ZTE/Pre_Post">
+        </div>
+      </div>
       <p class="hint">Read straight from disk — nothing is copied, so this is much faster
-         for large photo sets. Point it at a folder of site folders, or at a single site folder.</p>
+         for large photo sets. Point the first box at a folder of site folders. The Post
+         folder should hold one folder per site, each containing S1, S2, … sector folders.</p>
     </div>
 
     <div class="opts">
@@ -192,7 +209,8 @@ async function readJson(res) {
 }
 
 let mode = 'upload';
-let picked = new Map();   // site name -> File[]
+let picked = new Map();       // Pre:  site name -> File[]
+let pickedPost = new Map();   // Post: "site/sector" -> File[]
 let poll = null;
 
 /* ---------- tabs ---------- */
@@ -208,6 +226,30 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 /* ---------- collecting files ---------- */
+function addPostFiles(files) {
+  for (const file of files) {
+    const rel = (file.webkitRelativePath || file._rel || file.name).replace(/\\/g, '/');
+    const parts = rel.split('/').filter(p => p && p !== '.' && p !== '..');
+    if (parts.length < 3) continue;          // need site/sector/photo
+    const name = parts[parts.length - 1];
+    if (name.startsWith('.')) continue;
+    const key = parts[parts.length - 3] + '/' + parts[parts.length - 2];
+    if (!pickedPost.has(key)) pickedPost.set(key, []);
+    pickedPost.get(key).push(file);
+  }
+  renderPostQueue();
+}
+
+function renderPostQueue() {
+  const q = $('#queue-post');
+  if (!pickedPost.size) { q.innerHTML = ''; return; }
+  const sites = new Set([...pickedPost.keys()].map(k => k.split('/')[0]));
+  const total = [...pickedPost.values()].reduce((n, f) => n + f.length, 0);
+  q.innerHTML = `<div style="margin-bottom:6px"><strong>${sites.size}</strong> site(s) of Post photos
+      · ${pickedPost.size} sectors · ${total} photos</div>` +
+    [...sites].sort().map(s => `<span class="chip">${esc(s)}</span>`).join('');
+}
+
 function addFiles(files) {
   for (const file of files) {
     const rel = (file.webkitRelativePath || file._rel || file.name).replace(/\\/g, '/');
@@ -239,24 +281,26 @@ function refreshGo() {
 }
 
 /* ---------- drag and drop (walks whole folder trees) ---------- */
-const drop = $('#drop');
-drop.onclick = () => $('#picker').click();
-$('#picker').onchange = e => addFiles(e.target.files);
-
-['dragenter', 'dragover'].forEach(ev =>
-  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hot'); }));
-['dragleave', 'drop'].forEach(ev =>
-  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hot'); }));
-
-drop.addEventListener('drop', async e => {
-  e.preventDefault();
-  const entries = [...e.dataTransfer.items]
-    .map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  if (!entries.length) { addFiles(e.dataTransfer.files); return; }
-  const collected = [];
-  await Promise.all(entries.map(entry => walk(entry, '', collected)));
-  addFiles(collected);
-});
+function wireDrop(zoneId, pickerId, handler) {
+  const zone = $(zoneId), input = $(pickerId);
+  zone.onclick = () => input.click();
+  input.onchange = e => handler(e.target.files);
+  ['dragenter', 'dragover'].forEach(ev =>
+    zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('hot'); }));
+  ['dragleave', 'drop'].forEach(ev =>
+    zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('hot'); }));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault();
+    const entries = [...e.dataTransfer.items]
+      .map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (!entries.length) { handler(e.dataTransfer.files); return; }
+    const collected = [];
+    await Promise.all(entries.map(entry => walk(entry, '', collected)));
+    handler(collected);
+  });
+}
+wireDrop('#drop', '#picker', addFiles);
+wireDrop('#drop-post', '#picker-post', addPostFiles);
 
 function walk(entry, prefix, out) {
   return new Promise(resolve => {
@@ -286,13 +330,16 @@ $('#go').onclick = async () => {
     if (mode === 'local') {
       res = await fetch('/api/build-local', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ path: $('#path').value, maxDim }),
+        body: JSON.stringify({ path: $('#path').value,
+                               postPath: $('#postPath').value, maxDim }),
       });
     } else {
       const body = new FormData();
       body.append('maxDim', maxDim);
       for (const [site, files] of picked)
         for (const f of files) body.append('files', f, site + '/' + f.name);
+      for (const [key, files] of pickedPost)
+        for (const f of files) body.append('postFiles', f, key + '/' + f.name);
       $('#progress-label').textContent = 'Uploading…';
       $('#results').classList.remove('hidden');
       res = await fetch('/api/build', { method: 'POST', body });
@@ -337,7 +384,8 @@ function card(s, id) {
   const size = s.sizeBytes ? ` · ${(s.sizeBytes / 1048576).toFixed(1)} MB` : '';
   let meta = '';
   if (s.state === 'done')
-    meta = `${s.sectors} sectors · ${s.photosPlaced} photos${size}`;
+    meta = `${s.sectors} sectors · ${s.photosPlaced} Pre` +
+           (s.postPlaced ? ` · ${s.postPlaced} Post` : '') + size;
   else if (s.state === 'building') meta = 'building…';
   else if (s.photosFound) meta = `${s.photosFound} photos found`;
 
@@ -346,6 +394,11 @@ function card(s, id) {
     body += `<div class="note ${s.state === 'failed' ? 'bad' : 'warn'}">${esc(s.message)}</div>`;
   if (s.problems && s.problems.length)
     body += list('Problems', s.problems, 'bad');
+  if (s.postUndecided)
+    body += `<div class="note warn">${s.postUndecided} Post slot(s) left empty —
+      the band can't be read from a photo, or the pick wasn't confident.
+      <a href="/review" style="color:inherit">Fill them in the review screen</a>,
+      then build again.</div>`;
   if (s.missing && s.missing.length)
     body += list(`${s.missing.length} heading(s) with no Pre photo`, s.missing);
   if (s.unplaced && Object.keys(s.unplaced).length)

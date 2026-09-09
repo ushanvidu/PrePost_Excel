@@ -95,20 +95,34 @@ Or from a terminal:
 python -m antenna_audit web
 ```
 
-Drop in as many photo folders as you like — **each folder becomes its own
-workbook**. When the build finishes you can download them one at a time or all
-together as a `.zip`.
+Give it your **Pre** photos and, if you have them, your **Post** photos. Each site
+becomes one finished workbook you can download — Pre photos under their headings,
+Post photos in the Post columns. Download them one at a time or all as a `.zip`.
+
+The Post folder is optional: leave it out and you get a sheet with blank Post
+boxes to fill in by hand, exactly as before.
 
 ### Two ways to give it folders
 
 | | When to use it |
 |---|---|
-| **Upload folders** | Drag folders onto the drop zone, or click to pick one. Works from any machine, but every photo is copied into the browser and up to the app, so a large site folder takes a moment. |
-| **Folder on this computer** | Type the path to a folder. The photos are read straight from disk with nothing copied, so it is close to instant. Use this when the photos are already on the machine running the app. |
+| **Upload folders** | Drag folders onto the drop zones — one for Pre, one for Post. Works from any machine, but every photo is copied into the browser and up to the app, so a large site folder takes a moment. |
+| **Folder on this computer** | Type the two paths. The photos are read straight from disk with nothing copied, so it is close to instant. Use this when the photos are already on the machine running the app. |
 
-Either way, **the folder directly containing the photos is the site name**. Point
-it at a parent holding ten site folders and you get ten workbooks; point it at a
-single site folder and you get one.
+The two folders are shaped differently, because the photos arrive differently:
+
+```
+Pre  — the folder holding the photos is the site
+       IMAGE-P20250626.../ GMTHI1/ ..._Ant_Sec_1__850_Tilt_1.jpg
+
+Post — grouped by sector, so there is one level more
+       Pre_Post/ GMNIT1/ S1/ WhatsApp Image ....jpeg
+                        S2/ ...
+```
+
+Each site card shows how many Pre and Post photos landed, and how many Post slots
+were left empty for you. Those are the ones the classifier would only have been
+guessing at — open the review screen, settle them, and build again.
 
 ### What it tells you
 

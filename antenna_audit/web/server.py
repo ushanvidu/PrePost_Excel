@@ -31,6 +31,34 @@ from .jobs import JobStore, bundle, run_job
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
 
 
+def _save_folder_upload(files, destination: Path, keep_sector: bool = False) -> int:
+    """Write a browser folder upload to disk, preserving the folder shape.
+
+    The browser sends each file as "Parent/SITE/photo.jpg". For Pre photos the
+    folder holding the photo is the site. Post photos are one level deeper —
+    "Parent/SITE/S1/photo.jpg" — because they are grouped by sector, so that
+    level is kept.
+    """
+    saved = 0
+    for storage in files:
+        relative = (storage.filename or "").replace("\\", "/")
+        parts = [p for p in relative.split("/") if p not in ("", ".", "..")]
+        needed = 3 if keep_sector else 2
+        if len(parts) < needed:
+            continue
+        name = secure_filename(parts[-1])
+        if not name or name.startswith("."):
+            continue
+        if keep_sector:
+            target = destination / _safe_site_name(parts[-3]) / _safe_site_name(parts[-2])
+        else:
+            target = destination / _safe_site_name(parts[-2])
+        target.mkdir(parents=True, exist_ok=True)
+        storage.save(target / name)
+        saved += 1
+    return saved
+
+
 def _safe_site_name(raw: str) -> str:
     """Turn a folder name into something safe to use as a file name."""
     cleaned = secure_filename(raw.strip()) or "Site"
@@ -60,24 +88,14 @@ def create_app() -> Flask:
         if not uploaded:
             return jsonify(error="No files were received."), 400
 
-        saved = 0
-        for storage in uploaded:
+        saved = _save_folder_upload(uploaded, job.uploads)
+        # Post photos are optional; when present they arrive under their own
+        # field so the two sets never get mixed up.
+        _save_folder_upload(request.files.getlist("postFiles"), job.post_uploads,
+                            keep_sector=True)
             # The browser sends "Parent/SITE/photo.jpg"; the folder immediately
             # containing the photo is the site, which works whether the user
             # picked one site folder or a parent holding many.
-            relative = (storage.filename or "").replace("\\", "/")
-            parts = [p for p in relative.split("/") if p not in ("", ".", "..")]
-            if len(parts) < 2:
-                continue
-            site = _safe_site_name(parts[-2])
-            name = secure_filename(parts[-1])
-            if not name or name.startswith("."):
-                continue
-            target_dir = job.uploads / site
-            target_dir.mkdir(parents=True, exist_ok=True)
-            storage.save(target_dir / name)
-            saved += 1
-
         if not saved:
             return jsonify(
                 error="No usable image files were found. Drop the folder itself, "
@@ -92,6 +110,7 @@ def create_app() -> Flask:
         """Build from a folder already on this machine, without copying it."""
         payload = request.get_json(silent=True) or {}
         raw_path = (payload.get("path") or "").strip()
+        post_raw = (payload.get("postPath") or "").strip()
         if not raw_path:
             return jsonify(error="Enter a folder path."), 400
 
@@ -130,8 +149,41 @@ def create_app() -> Flask:
                 error=f"No photos found in {root} or its sub-folders."
             ), 400
 
+        if post_raw:
+            post_root = Path(post_raw).expanduser()
+            if not post_root.is_dir():
+                return jsonify(error=f"Not a folder: {post_root}"), 400
+            matched = _link_post_tree(post_root, job.post_uploads)
+            if not matched:
+                return jsonify(error=(
+                    f"No Post photos found under {post_root}. It should hold one "
+                    f"folder per site, each containing S1, S2, … sector folders."
+                )), 400
+
         _start(job)
         return jsonify(job.as_dict())
+
+    def _link_post_tree(source: Path, destination: Path) -> int:
+        """Mirror a Post tree (site/sector/photos) without copying the photos."""
+        linked = 0
+        for site_dir in sorted(d for d in source.iterdir()
+                               if d.is_dir() and not d.name.startswith(".")):
+            for sector_dir in sorted(d for d in site_dir.iterdir()
+                                     if d.is_dir() and not d.name.startswith(".")):
+                photos = [f for f in sector_dir.iterdir()
+                          if f.is_file() and not f.name.startswith(".")]
+                if not photos:
+                    continue
+                target = (destination / _safe_site_name(site_dir.name)
+                          / _safe_site_name(sector_dir.name))
+                target.mkdir(parents=True, exist_ok=True)
+                for photo in photos:
+                    try:
+                        os.link(photo, target / photo.name)
+                    except OSError:
+                        shutil.copy2(photo, target / photo.name)
+                    linked += 1
+        return linked
 
     @app.get("/api/job/<job_id>")
     def job_status(job_id: str):
