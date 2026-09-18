@@ -24,6 +24,7 @@ BANNER_FILL = "FF1F2933"
 BANNER_TEXT = "FFFFFFFF"
 ZONE_FILL = "FFE4E7EB"
 PRE_FILL = "FFDCEBDC"
+BEFORE_FILL = "FFE7E3F2"
 POST_FILL = "FFF6E7DC"
 PLACEHOLDER_FILL = "FFFAFBFC"
 MISSING_FILL = "FFFDF3F3"
@@ -36,6 +37,23 @@ PREPOST_FONT = Font(name="Calibri", size=10, bold=True, color=INK)
 HEADING_FONT = Font(name="Calibri", size=10, bold=True, color=MUTED)
 PLACEHOLDER_FONT = Font(name="Calibri", size=9, italic=True, color=FAINT)
 MISSING_FONT = Font(name="Calibri", size=9, italic=True, color="FFB04A4A")
+VALUES_HEADER_FONT = Font(name="Calibri", size=11, bold=True, color=INK)
+
+# The Values sheet, which the field team fills in beside the photos.  Its row
+# labels are worded differently from the photo headings ("850 E Tilt", not
+# "850 Tilt"; "Antenna Azimuth", not "Antenna Azimuth Photo"), so they are kept
+# separate rather than derived from catalog.DISPLAY_NAMES.
+VALUES_SHEET_TITLE = "Values"
+VALUES_COLUMNS = ("sector", None, "Pre", "Before Swap", "Post", "Plan")
+VALUES_ROWS = [
+    "Sec {sector}_ 850 E Tilt",
+    "Sec {sector}_ 900 E Tilt",
+    "Sec {sector}_ 1800 E Tilt 1",
+    "Sec {sector}_ 1800 E Tilt 2",
+    "Sec {sector}_ 2100 E Tilt",
+    "Sec {sector} Antenna M Tilt",
+    "Sec {sector} Antenna Azimuth",
+]
 
 CENTRE = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT = Alignment(horizontal="left", vertical="center")
@@ -169,6 +187,37 @@ def _write_slot(ws, slot: SlotPlan, preparer: ImagePreparer) -> bool:
     return True
 
 
+def _write_values_sheet(wb, plan: SheetPlan) -> None:
+    """Add the Values sheet: one row per sector per measured quantity.
+
+    Only the scaffold is written.  The readings themselves come off instruments
+    in the field, not out of the photographs, so every value cell is left empty
+    for the engineer to fill in.
+    """
+    ws = wb.create_sheet(VALUES_SHEET_TITLE)
+    for index, heading in enumerate(VALUES_COLUMNS, start=1):
+        if heading is None:
+            continue                      # the label column carries no header
+        cell = ws.cell(row=1, column=index)
+        cell.value = heading
+        cell.font = VALUES_HEADER_FONT
+
+    row = 2
+    for sector in plan.sectors:
+        for template in VALUES_ROWS:
+            ws.cell(row=row, column=1).value = f"sec{sector.number}"
+            ws.cell(row=row, column=2).value = template.format(
+                sector=sector.number
+            )
+            row += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 25
+    for letter in ("C", "D", "E", "F"):
+        ws.column_dimensions[letter].width = 14
+    ws.column_dimensions["G"].width = 62
+
+
 def write_workbook(
     plan: SheetPlan, out_path: Path, preparer: ImagePreparer,
     unplaced: dict[str, int] | None = None,
@@ -188,7 +237,7 @@ def write_workbook(
     _write_merged(
         ws, layout.MARGIN_LEFT, plan.subtitle_row, span,
         "Pre photos placed automatically from the field survey. "
-        "Post photos are pasted into the dashed boxes by hand.",
+        "Before Swap and Post photos are pasted into the dashed boxes by hand.",
         SUBTITLE_FONT, alignment=LEFT,
     )
 
@@ -206,17 +255,18 @@ def write_workbook(
                 ws, zone.pre_col0, sector.zone_header_row, zone_cols,
                 zone.title, ZONE_FONT, fill=ZONE_FILL,
             )
-            _write_merged(
-                ws, zone.pre_col0, sector.prepost_header_row, layout.BOX_COLS,
-                "Pre", PREPOST_FONT, fill=PRE_FILL,
-            )
-            _write_merged(
-                ws, zone.post_col0, sector.prepost_header_row, layout.BOX_COLS,
-                "Post", PREPOST_FONT, fill=POST_FILL,
-            )
+            for kind, label, fill in (
+                ("pre", "Pre", PRE_FILL),
+                ("before", "Before Swap", BEFORE_FILL),
+                ("post", "Post", POST_FILL),
+            ):
+                _write_merged(
+                    ws, zone.col0_for(kind), sector.prepost_header_row,
+                    layout.BOX_COLS, label, PREPOST_FONT, fill=fill,
+                )
 
             for category in zone.categories:
-                for col0 in (category.heading_col, category.heading_post_col):
+                for col0 in category.heading_cols:
                     _write_merged(
                         ws, col0, category.heading_row, layout.BOX_COLS,
                         category.heading, HEADING_FONT, alignment=LEFT,
@@ -224,6 +274,8 @@ def write_workbook(
                 for slot in category.slots:
                     if _write_slot(ws, slot, preparer):
                         placed += 1
+
+    _write_values_sheet(wb, plan)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out_path)

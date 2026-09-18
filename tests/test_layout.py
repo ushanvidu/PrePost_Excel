@@ -6,8 +6,10 @@ from antenna_audit import layout
 def test_column_bands_do_not_overlap():
     bands = [
         (layout.LEFT_PRE_COL0, "left pre"),
+        (layout.LEFT_BEFORE_COL0, "left before swap"),
         (layout.LEFT_POST_COL0, "left post"),
         (layout.RIGHT_PRE_COL0, "right pre"),
+        (layout.RIGHT_BEFORE_COL0, "right before swap"),
         (layout.RIGHT_POST_COL0, "right post"),
     ]
     for (start, name), (next_start, next_name) in zip(bands, bands[1:]):
@@ -15,6 +17,17 @@ def test_column_bands_do_not_overlap():
         assert end <= next_start, f"{name} runs into {next_name}"
     last = bands[-1][0] + layout.BOX_COLS
     assert last <= layout.LAST_COL + 1, "a band runs past the merged banner"
+
+
+def test_every_band_is_preceded_by_a_gap_column():
+    """A gap keeps two bands from reading as one wide block."""
+    for band in (
+        layout.LEFT_BEFORE_COL0, layout.LEFT_POST_COL0,
+        layout.RIGHT_PRE_COL0, layout.RIGHT_BEFORE_COL0, layout.RIGHT_POST_COL0,
+    ):
+        previous_band_end = band - 1
+        assert previous_band_end in layout.column_widths()
+        assert layout.column_widths()[previous_band_end] < layout.BOX_COL_PX
 
 
 def test_every_used_column_has_a_width():

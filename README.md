@@ -167,18 +167,26 @@ banner. Inside a sector the sheet splits in half:
 
 ```
 ┌──────────────────────────────────────┬──────────────────────────────────────┐
-│            Electrical Tilt           │      Mechanical Tilt & Azimuth       │
-├──────────────────┬───────────────────┼──────────────────┬───────────────────┤
-│       Pre        │       Post        │       Pre        │       Post        │
-├──────────────────┼───────────────────┼──────────────────┼───────────────────┤
-│ Sec 1_ 850 Tilt  │ Sec 1_ 850 Tilt   │ Sec 1 Ant M Tilt │ Sec 1 Ant M Tilt  │
-│ ┌──────────────┐ │ ┌ ─ ─ ─ ─ ─ ─ ─┐  │ ┌──────────────┐ │ ┌ ─ ─ ─ ─ ─ ─ ─┐  │
-│ │   [photo]    │ │ │ paste here   │  │ │   [photo]    │ │ │ paste here   │  │
-│ └──────────────┘ │ └ ─ ─ ─ ─ ─ ─ ─┘  │ └──────────────┘ │ └ ─ ─ ─ ─ ─ ─ ─┘  │
-│ Sec 1_ 900 Tilt  │ Sec 1_ 900 Tilt   │ Sec 1 Azimuth    │ Sec 1 Azimuth     │
-│        …         │         …         │        …         │         …         │
-└──────────────────┴───────────────────┴──────────────────┴───────────────────┘
+│           Electrical Tilt            │      Mechanical Tilt & Azimuth       │
+├────────────┬────────────┬────────────┼────────────┬────────────┬────────────┤
+│    Pre     │Before Swap │    Post    │    Pre     │Before Swap │    Post    │
+├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
+│  850 Tilt  │  850 Tilt  │  850 Tilt  │ Ant M Tilt │ Ant M Tilt │ Ant M Tilt │
+│ ┌────────┐ │ ┌ ─ ─ ─ ─┐ │ ┌ ─ ─ ─ ─┐ │ ┌────────┐ │ ┌ ─ ─ ─ ─┐ │ ┌ ─ ─ ─ ─┐ │
+│ │[photo] │ │ │ paste  │ │ │ paste  │ │ │[photo] │ │ │ paste  │ │ │ paste  │ │
+│ └────────┘ │ └ ─ ─ ─ ─┘ │ └ ─ ─ ─ ─┘ │ └────────┘ │ └ ─ ─ ─ ─┘ │ └ ─ ─ ─ ─┘ │
+│  900 Tilt  │  900 Tilt  │  900 Tilt  │  Azimuth   │  Azimuth   │  Azimuth   │
+│     …      │     …      │     …      │     …      │     …      │     …      │
+└────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
 ```
+
+Each half carries **three** bands. Only **Pre** is filled from the survey;
+**Before Swap** and **Post** are drop boxes a person pastes into. In columns:
+
+| Zone | Pre | Before Swap | Post |
+|---|---|---|---|
+| Electrical Tilt | B–H | J–P | R–X |
+| Mechanical Tilt & Azimuth | Z–AF | AH–AN | AP–AV |
 
 **Left half — Electrical Tilt**, one heading per band, in this order:
 `850 Tilt`, `900 Tilt`, `1800 Tilt 1`, `1800 Tilt 2`, `2100 Tilt`.
@@ -186,9 +194,17 @@ banner. Inside a sector the sheet splits in half:
 **Right half — Mechanical Tilt & Azimuth**:
 `Antenna M Tilt`, `Antenna Azimuth Photo`, `Antenna Coverage Photo`.
 
-The photo always sits **directly underneath its heading**. Every Post box is the
-same size and on the same rows as the Pre photo facing it, so a pasted Post photo
+The photo always sits **directly underneath its heading**. Every drop box is the
+same size and on the same rows as the Pre photo facing it, so a pasted photo
 lines up without any manual nudging.
+
+### The Values sheet
+
+Every workbook carries a second sheet, `Values`, holding the readings that go
+with the photos: one row per sector per measured quantity, with columns
+`sector | label | Pre | Before Swap | Post | Plan`. The scaffold is written for
+you; the numbers come off instruments in the field, so the value cells are left
+empty to fill in. Column G is free for remarks.
 
 ### Rules the sheet follows
 

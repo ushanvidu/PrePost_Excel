@@ -5,23 +5,31 @@ layer effectively works in (1 px = 9525 EMU).  Rows and columns are given fixed
 sizes by the writer so that a position computed here lands where it is expected
 no matter what the reader's default font is.
 
+Each half of the sheet carries three bands, not two: the survey photo, the
+state found immediately before the antenna swap, and the state after it.  Only
+Pre is filled automatically; the other two are drop boxes a person pastes into.
+
 Column bands, left to right::
 
     A          margin
     B .. H     electrical tilt, Pre           <- filled from the survey photos
     I          gap
-    J .. P     electrical tilt, Post          <- empty drop boxes, filled by hand
-    Q          centre gutter
-    R .. X     mechanical tilt / azimuth, Pre
-    Y          gap
-    Z .. AF    mechanical tilt / azimuth, Post
-    AG         margin
+    J .. P     electrical tilt, Before Swap   <- empty drop boxes, filled by hand
+    Q          gap
+    R .. X     electrical tilt, Post          <- empty drop boxes, filled by hand
+    Y          centre gutter
+    Z .. AF    mechanical tilt / azimuth, Pre
+    AG         gap
+    AH .. AN   mechanical tilt / azimuth, Before Swap
+    AO         gap
+    AP .. AV   mechanical tilt / azimuth, Post
+    AW         margin
 
 Box heights adapt to each photo's aspect ratio.  A landscape tilt shot would
 otherwise sit in the middle of a tall portrait-shaped box with most of the slot
 left empty, which pushes the sheet to several times the length it needs.  The
-Pre box and its facing Post drop box always share a height, so the two columns
-stay aligned row for row.
+Pre box and the two drop boxes facing it always share a height, so the three
+columns stay aligned row for row.
 """
 
 from __future__ import annotations
@@ -66,15 +74,25 @@ def px_to_row_height(px: int) -> float:
 # --- Column bands -----------------------------------------------------------
 # (first_column_index, column_count), zero-based.
 MARGIN_LEFT = 0
-LEFT_PRE_COL0, BOX_COLS = 1, 7
+BOX_COLS = 7
+LEFT_PRE_COL0 = 1
 LEFT_GAP_COL = 8
-LEFT_POST_COL0 = 9
-GUTTER_COL = 16
-RIGHT_PRE_COL0 = 17
-RIGHT_GAP_COL = 24
-RIGHT_POST_COL0 = 25
-MARGIN_RIGHT = 32
+LEFT_BEFORE_COL0 = 9
+LEFT_GAP2_COL = 16
+LEFT_POST_COL0 = 17
+GUTTER_COL = 24
+RIGHT_PRE_COL0 = 25
+RIGHT_GAP_COL = 32
+RIGHT_BEFORE_COL0 = 33
+RIGHT_GAP2_COL = 40
+RIGHT_POST_COL0 = 41
+MARGIN_RIGHT = 48
 LAST_COL = MARGIN_RIGHT  # banner rows are merged from column A to here
+
+# The slot kind each of a zone's three bands holds, in sheet order.  A slot
+# carries its kind rather than its column, and ZonePlan.col0_for turns one into
+# the other, so the two never disagree.
+BAND_KINDS = ("pre", "before", "post")
 
 BOX_W_PX = BOX_COLS * BOX_COL_PX  # 448
 
@@ -176,11 +194,14 @@ def fit_within(img_w: int, img_h: int, box_w: int, box_h: int) -> tuple[int, int
 def column_widths() -> dict[int, int]:
     """Pixel width for every column the sheet uses, keyed by zero-based index."""
     widths: dict[int, int] = {MARGIN_LEFT: GAP_COL_PX}
-    for col0 in (LEFT_PRE_COL0, LEFT_POST_COL0, RIGHT_PRE_COL0, RIGHT_POST_COL0):
+    for col0 in (
+        LEFT_PRE_COL0, LEFT_BEFORE_COL0, LEFT_POST_COL0,
+        RIGHT_PRE_COL0, RIGHT_BEFORE_COL0, RIGHT_POST_COL0,
+    ):
         for offset in range(BOX_COLS):
             widths[col0 + offset] = BOX_COL_PX
-    widths[LEFT_GAP_COL] = GAP_COL_PX
-    widths[RIGHT_GAP_COL] = GAP_COL_PX
+    for gap in (LEFT_GAP_COL, LEFT_GAP2_COL, RIGHT_GAP_COL, RIGHT_GAP2_COL):
+        widths[gap] = GAP_COL_PX
     widths[GUTTER_COL] = GUTTER_COL_PX
     widths[MARGIN_RIGHT] = GAP_COL_PX
     return widths

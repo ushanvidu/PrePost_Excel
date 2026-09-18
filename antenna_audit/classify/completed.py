@@ -36,13 +36,27 @@ _REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _NS = {"xdr": _XDR, "r": _REL, "m": _MAIN}
 
-# Where each column band starts, and which side of the sheet it is.
+# Where each column band starts, and which round of photography it holds.
 BANDS = {
     layout.LEFT_PRE_COL0: "pre",
+    layout.LEFT_BEFORE_COL0: "before",
     layout.LEFT_POST_COL0: "post",
     layout.RIGHT_PRE_COL0: "pre",
+    layout.RIGHT_BEFORE_COL0: "before",
     layout.RIGHT_POST_COL0: "post",
 }
+
+# Workbooks built before the Before Swap band was added have only two bands per
+# zone, and their columns mean something else entirely: column 9 was Post, not
+# Before Swap, and column 25 was the right-hand Pre, not the right-hand Post.
+# Reading one of those with the current map would mislabel every photo in it, so
+# the old geometry is kept here verbatim rather than derived from ``layout``.
+LEGACY_BANDS = {1: "pre", 9: "post", 17: "pre", 25: "post"}
+
+# The header text that tells the two apart.  A sheet that names the middle band
+# is a three-band sheet; anything else is read with the old map.
+BEFORE_SWAP_HEADER = "Before Swap"
+
 # How far a hand-pasted photo may sit from its band before we stop guessing.
 MAX_COLUMN_DRIFT = 6
 
@@ -85,8 +99,13 @@ def _cell_text(cell, shared: list[str]) -> str | None:
     return value.text
 
 
-def _headings(archive: zipfile.ZipFile, sheet: str) -> list[tuple[int, int, str]]:
-    """Every slot heading in the sheet, as (row, column, text)."""
+def _read_sheet(
+    archive: zipfile.ZipFile, sheet: str
+) -> tuple[list[tuple[int, int, str]], dict[int, str]]:
+    """Parse one sheet into its slot headings and the band map it was built to.
+
+    Returns ``(headings, bands)`` where each heading is ``(row, column, text)``.
+    """
     shared: list[str] = []
     if "xl/sharedStrings.xml" in archive.namelist():
         shared = [
@@ -94,20 +113,27 @@ def _headings(archive: zipfile.ZipFile, sheet: str) -> list[tuple[int, int, str]
             for si in ET.fromstring(archive.read("xl/sharedStrings.xml"))
         ]
     found = []
+    three_band = False
     root = ET.fromstring(archive.read(sheet))
     for row in root.iter(f"{{{_MAIN}}}row"):
         number = int(row.get("r"))
         for cell in row:
             text = _cell_text(cell, shared)
-            if text and text.startswith("Sec ") and not text.startswith("Sector"):
+            if not text:
+                continue
+            if text.strip() == BEFORE_SWAP_HEADER:
+                three_band = True
+            elif text.startswith("Sec ") and not text.startswith("Sector"):
                 found.append((number, _column_index(cell.get("r")), text.strip()))
-    return found
+    return found, BANDS if three_band else LEGACY_BANDS
 
 
-def _nearest_band(column: int) -> tuple[int, str] | None:
+def _nearest_band(
+    column: int, bands: dict[int, str] | None = None
+) -> tuple[int, str] | None:
     """Which band a hand-placed photo belongs to, or None if it is parked."""
     best, distance = None, MAX_COLUMN_DRIFT + 1
-    for start, kind in BANDS.items():
+    for start, kind in (bands or BANDS).items():
         gap = abs(column - start)
         if gap < distance:
             best, distance = (start, kind), gap
@@ -126,7 +152,7 @@ def extract(workbook: Path) -> list[PlacedPhoto]:
         )
         if not sheets:
             return []
-        headings = _headings(archive, sheets[0])
+        headings, bands = _read_sheet(archive, sheets[0])
 
         for drawing in sorted(
             n for n in names if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)
@@ -161,7 +187,7 @@ def extract(workbook: Path) -> list[PlacedPhoto]:
 
                 column = int(marker.find("xdr:col", _NS).text)
                 row_number = int(marker.find("xdr:row", _NS).text) + 1
-                band = _nearest_band(column)
+                band = _nearest_band(column, bands)
                 if band is None:
                     continue                      # parked outside the layout
                 band_column, kind = band

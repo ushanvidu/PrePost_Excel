@@ -38,8 +38,9 @@ HEADING_TO_TOKEN = {
 }
 LEFT_TOKENS = {"850_Tilt", "900_Tilt", "1800_Tilt_1", "1800_Tilt_2", "2100_Tilt"}
 # Column index -> which half of the sheet the Pre band belongs to.
-PRE_BANDS = {1: "left", 17: "right"}
-POST_BANDS = {9, 25}
+PRE_BANDS = {1: "left", 25: "right"}
+# Before Swap and Post are drop boxes: a Pre-only build must put nothing in them.
+DROP_BANDS = {9: "Before Swap", 17: "Post", 33: "Before Swap", 41: "Post"}
 # Mean squared difference below which two 32x32 normalised thumbnails are the
 # same photograph.  Comfortably above JPEG re-encoding noise, far below the
 # distance between two different photographs.
@@ -117,8 +118,11 @@ def verify(images_root: Path, output_dir: Path) -> int:
             col = int(marker.find("xdr:col", NS).text)
             row_number = int(marker.find("xdr:row", NS).text) + 1
 
-            if col in POST_BANDS:
-                problems.append(f"{site}: a picture sits in a Post band at row {row_number}")
+            if col in DROP_BANDS:
+                problems.append(
+                    f"{site}: a picture sits in a {DROP_BANDS[col]} band "
+                    f"at row {row_number}"
+                )
                 continue
 
             above = [h for h in headings if h[1] == col and h[0] < row_number]

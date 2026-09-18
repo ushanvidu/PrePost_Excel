@@ -12,7 +12,11 @@ from antenna_audit.dedupe import deduplicate_media
 from antenna_audit.imaging import ImagePreparer
 from antenna_audit.plan import build_plan
 from antenna_audit.validate import check_plan, check_workbook
-from antenna_audit.workbook import write_workbook
+from antenna_audit.workbook import (
+    VALUES_ROWS,
+    VALUES_SHEET_TITLE,
+    write_workbook,
+)
 
 PREFIX = "Sector_{s}_RF_Antenna_Photos_Sector_{s}_RF_Antenna_Photos_Ant_Sec_{s}_"
 
@@ -113,3 +117,39 @@ def test_full_res_embeds_the_original_bytes(site_dir, tmp_path):
         sizes = {n: zf.getinfo(n).file_size for n in zf.namelist()
                  if n.startswith("xl/media/")}
     assert sizes, "no media embedded"
+
+
+def test_values_sheet_has_a_row_for_every_sector(site_dir, tmp_path):
+    plan, _, out = build(site_dir, tmp_path)
+    ws = load_workbook(out)[VALUES_SHEET_TITLE]
+
+    assert [ws.cell(row=1, column=c).value for c in range(1, 7)] == [
+        "sector", None, "Pre", "Before Swap", "Post", "Plan",
+    ]
+
+    rows = [
+        (ws.cell(row=r, column=1).value, ws.cell(row=r, column=2).value)
+        for r in range(2, ws.max_row + 1)
+    ]
+    expected = [
+        (f"sec{sector.number}", template.format(sector=sector.number))
+        for sector in plan.sectors
+        for template in VALUES_ROWS
+    ]
+    assert rows == expected
+
+
+def test_values_sheet_leaves_every_reading_empty(site_dir, tmp_path):
+    """The numbers come off instruments, not out of the photographs."""
+    _, _, out = build(site_dir, tmp_path)
+    ws = load_workbook(out)[VALUES_SHEET_TITLE]
+    for row in range(2, ws.max_row + 1):
+        for column in range(3, 8):          # Pre, Before Swap, Post, Plan, remarks
+            assert ws.cell(row=row, column=column).value is None
+
+
+def test_the_photo_sheet_is_still_the_first_sheet(site_dir, tmp_path):
+    """Readers that take the first sheet must still find the photos."""
+    plan, _, out = build(site_dir, tmp_path)
+    wb = load_workbook(out)
+    assert wb.sheetnames == [plan.site[:31], VALUES_SHEET_TITLE]

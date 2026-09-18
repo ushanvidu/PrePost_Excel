@@ -64,30 +64,47 @@ def test_missing_category_still_gets_a_slot():
     assert len(plan.missing_slots) == 4 + len(MECHANICAL_AZIMUTH_CATEGORIES)
 
 
-def test_pre_and_post_boxes_are_aligned_and_same_height():
+def test_all_three_bands_are_aligned_and_same_height():
     plan = build_plan(make_inventory({1: full_sector(), 2: {c: 3 for c in
                                       ELECTRICAL_TILT_CATEGORIES}}))
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
             for category in zone.categories:
-                pres = [s for s in category.slots if s.kind == "pre"]
-                posts = [s for s in category.slots if s.kind == "post"]
-                assert len(pres) == len(posts)
-                for pre, post in zip(pres, posts):
-                    assert pre.box.row0 == post.box.row0
-                    assert pre.box.rows == post.box.rows
+                rows = [
+                    [s for s in category.slots if s.kind == kind]
+                    for kind in layout.BAND_KINDS
+                ]
+                assert len({len(band) for band in rows}) == 1, "bands differ in length"
+                for pre, before, post in zip(*rows):
+                    for slot in (before, post):
+                        assert slot.box.row0 == pre.box.row0
+                        assert slot.box.rows == pre.box.rows
                     assert pre.box.col0 == zone.pre_col0
+                    assert before.box.col0 == zone.before_col0
                     assert post.box.col0 == zone.post_col0
 
 
-def test_post_boxes_never_hold_a_photo():
+def test_drop_box_bands_never_hold_a_photo():
     plan = build_plan(make_inventory({1: full_sector()}))
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
             for category in zone.categories:
                 for slot in category.slots:
-                    if slot.kind == "post":
+                    if slot.kind in ("before", "post"):
                         assert slot.photo is None
+
+
+def test_before_swap_is_never_filled_even_when_post_photos_are_supplied():
+    """The survey has no Before Swap round, so that band stays a drop box."""
+    plan = build_plan(
+        make_inventory({1: full_sector()}),
+        post_photos={(1, "850_Tilt"): [Path("/post/a.jpg")]},
+    )
+    category = next(c for c in plan.sectors[0].left.categories
+                    if c.category == "850_Tilt")
+    by_kind = {s.kind: s for s in category.slots}
+    assert by_kind["post"].photo is not None, "the Post band should take it"
+    assert by_kind["before"].photo is None
 
 
 def test_every_photo_sits_below_its_heading():

@@ -28,32 +28,47 @@ class SlotPlan:
     """One photo box, or one empty placeholder, at a fixed sheet position."""
 
     box: layout.Box
-    photo: Photo | None      # None for Post drop boxes and missing Pre photos
-    kind: str                # "pre" | "post"
+    photo: Photo | None      # None for drop boxes and missing Pre photos
+    kind: str                # "pre" | "before" | "post"
     placeholder_text: str = ""
 
 
 @dataclass
 class CategoryPlan:
-    """A heading plus the boxes underneath it, on both the Pre and Post sides."""
+    """A heading plus the boxes underneath it, repeated over all three bands."""
 
     category: str
     heading: str
     heading_row: int
     heading_col: int
+    heading_before_col: int
     heading_post_col: int
     slots: list[SlotPlan] = field(default_factory=list)
+
+    @property
+    def heading_cols(self) -> tuple[int, int, int]:
+        """The column each band's copy of the heading starts at, in sheet order."""
+        return (self.heading_col, self.heading_before_col, self.heading_post_col)
 
 
 @dataclass
 class ZonePlan:
-    """One half of a sector: the Pre and Post columns for a group of categories."""
+    """One half of a sector: the three photo columns for a group of categories."""
 
     title: str
     pre_col0: int
+    before_col0: int
     post_col0: int
     categories: list[CategoryPlan] = field(default_factory=list)
     end_row: int = 0
+
+    def col0_for(self, kind: str) -> int:
+        """Where the band holding slots of this kind starts."""
+        return {
+            "pre": self.pre_col0,
+            "before": self.before_col0,
+            "post": self.post_col0,
+        }[kind]
 
 
 @dataclass
@@ -96,6 +111,7 @@ def _box_rows_for(photo: Photo, preparer: ImagePreparer | None) -> int:
 def _plan_zone(
     title: str,
     pre_col0: int,
+    before_col0: int,
     post_col0: int,
     categories: list[str],
     sector: int,
@@ -105,7 +121,10 @@ def _plan_zone(
     preparer: ImagePreparer | None,
     post_photos: dict[tuple[int, str], list[Path]] | None = None,
 ) -> tuple[ZonePlan, int]:
-    zone = ZonePlan(title=title, pre_col0=pre_col0, post_col0=post_col0)
+    zone = ZonePlan(
+        title=title, pre_col0=pre_col0, before_col0=before_col0,
+        post_col0=post_col0,
+    )
     row = start_row
 
     for category in categories:
@@ -116,12 +135,13 @@ def _plan_zone(
             heading=heading,
             heading_row=row,
             heading_col=pre_col0,
+            heading_before_col=before_col0,
             heading_post_col=post_col0,
         )
         box_row = row + layout.HEADING_ROWS + layout.HEADING_GAP_ROWS
 
-        # Size every box first: the Post drop box mirrors the height of the Pre
-        # photo facing it, so the two columns stay aligned all the way down.
+        # Size every box first: both drop boxes mirror the height of the Pre
+        # photo facing them, so the three columns stay aligned all the way down.
         box_heights = [_box_rows_for(photo, preparer) for photo in photos]
         if not box_heights:
             box_heights = [layout.DEFAULT_BOX_H_PX // layout.ROW_PX]
@@ -140,6 +160,16 @@ def _plan_zone(
                     photo,
                     "pre",
                     "" if photo else "No Pre photo",
+                )
+            )
+            # The Before Swap band is never filled automatically: nothing in
+            # the survey documents that round.  It is always a drop box.
+            plan.slots.append(
+                SlotPlan(
+                    layout.Box(before_col0, top, rows=height),
+                    None,
+                    "before",
+                    "Paste Before Swap photo here",
                 )
             )
             # Post photos arrive as bare paths from the classifier; wrap them so
@@ -196,6 +226,7 @@ def build_plan(
         left, left_end = _plan_zone(
             "Electrical Tilt",
             layout.LEFT_PRE_COL0,
+            layout.LEFT_BEFORE_COL0,
             layout.LEFT_POST_COL0,
             ELECTRICAL_TILT_CATEGORIES,
             sector,
@@ -208,6 +239,7 @@ def build_plan(
         right, right_end = _plan_zone(
             "Mechanical Tilt & Azimuth",
             layout.RIGHT_PRE_COL0,
+            layout.RIGHT_BEFORE_COL0,
             layout.RIGHT_POST_COL0,
             MECHANICAL_AZIMUTH_CATEGORIES,
             sector,

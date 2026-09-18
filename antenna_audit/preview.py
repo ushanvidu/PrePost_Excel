@@ -23,6 +23,7 @@ FAINT = (154, 165, 177)
 BANNER_BG = (31, 41, 51)
 ZONE_BG = (228, 231, 235)
 PRE_BG = (220, 235, 220)
+BEFORE_BG = (231, 227, 242)
 POST_BG = (246, 231, 220)
 PLACEHOLDER_BG = (250, 251, 252)
 MISSING_BG = (253, 243, 243)
@@ -104,7 +105,8 @@ def render_preview(
     draw.text((edges[0], y(plan.title_row)),
               f"{plan.site} — Antenna Audit Photos", font=_font(22, True), fill=INK)
     draw.text((edges[0], y(plan.subtitle_row) + 4),
-              "Pre photos placed automatically. Post photos pasted by hand.",
+              "Pre photos placed automatically. "
+              "Before Swap and Post photos pasted by hand.",
               font=_font(13), fill=MUTED)
 
     for sector in sectors:
@@ -142,6 +144,7 @@ def _draw_sector(draw, canvas, sector, edges, y, preparer) -> None:
         py = y(sector.prepost_header_row) + 6
         for col0, label, colour in (
             (zone.pre_col0, "Pre", PRE_BG),
+            (zone.before_col0, "Before Swap", BEFORE_BG),
             (zone.post_col0, "Post", POST_BG),
         ):
             bx0, bx1 = edges[col0], edges[col0 + layout.BOX_COLS]
@@ -150,7 +153,7 @@ def _draw_sector(draw, canvas, sector, edges, y, preparer) -> None:
 
         for category in zone.categories:
             hy = y(category.heading_row)
-            for col0 in (category.heading_col, category.heading_post_col):
+            for col0 in category.heading_cols:
                 draw.text((edges[col0] + 2, hy + 3), category.heading,
                           font=heading_font, fill=MUTED)
             for slot in category.slots:
