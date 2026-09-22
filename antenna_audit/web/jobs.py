@@ -16,7 +16,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import catalog
+from .. import catalog, layout
 from ..dedupe import deduplicate_media
 from ..imaging import DEFAULT_MAX_DIM, ImagePreparer
 
@@ -34,6 +34,7 @@ class SiteResult:
     """Progress and outcome for one folder."""
 
     name: str
+    template: str = ""           # which sheet template this site was built to
     state: str = "waiting"       # waiting | building | done | failed | skipped
     photos_found: int = 0
     photos_placed: int = 0
@@ -50,6 +51,7 @@ class SiteResult:
     def as_dict(self) -> dict:
         return {
             "name": self.name,
+            "template": self.template,
             "state": self.state,
             "photosFound": self.photos_found,
             "photosPlaced": self.photos_placed,
@@ -73,6 +75,9 @@ class Job:
     root: Path
     max_dim: int | None = DEFAULT_MAX_DIM
     model_dir: Path | None = None      # trained classifier + your confirmations
+    # Which sheet template each site is built to, by site name; anything absent
+    # uses the default.
+    templates: dict[str, str] = field(default_factory=dict)
     state: str = "preparing"     # preparing | running | done | failed
     error: str = ""
     sites: dict[str, SiteResult] = field(default_factory=dict)
@@ -116,14 +121,16 @@ class JobStore:
         self._root = Path(tempfile.mkdtemp(prefix="antenna-audit-web-"))
 
     def create(self, max_dim: int | None,
-               model_dir: Path | None = None) -> Job:
+               model_dir: Path | None = None,
+               templates: dict[str, str] | None = None) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         root = self._root / job_id
         (root / "uploads").mkdir(parents=True, exist_ok=True)
         (root / "post").mkdir(parents=True, exist_ok=True)
         (root / "output").mkdir(parents=True, exist_ok=True)
-        job = Job(id=job_id, root=root, max_dim=max_dim, model_dir=model_dir)
+        job = Job(id=job_id, root=root, max_dim=max_dim, model_dir=model_dir,
+                  templates=dict(templates or {}))
         with self._lock:
             self._jobs[job_id] = job
         return job
@@ -176,6 +183,14 @@ def _build_one(job: Job, site_dir: Path, result: SiteResult) -> None:
     inventory = catalog.scan_site(site_dir)
     result.photos_found = len(inventory.photos)
 
+    # An unknown name here would be a bug in the browser, not something the user
+    # can act on, so fall back to the default rather than failing the site.
+    try:
+        sheet_layout = layout.template(job.templates.get(site_dir.name))
+    except ValueError:
+        sheet_layout = layout.DEFAULT_TEMPLATE
+    result.template = sheet_layout.name
+
     if not inventory.sectors:
         result.state = "skipped"
         result.message = (
@@ -186,7 +201,7 @@ def _build_one(job: Job, site_dir: Path, result: SiteResult) -> None:
 
     preparer = ImagePreparer(job.root / "work" / site_dir.name, max_dim=job.max_dim)
     post_photos = _classify_post(job, site_dir.name, result)
-    plan = build_plan(inventory, preparer, post_photos)
+    plan = build_plan(inventory, preparer, post_photos, sheet_layout)
     layout_errors = check_plan(plan)
 
     filename = f"{site_dir.name} Antenna Audit Photos.xlsx"

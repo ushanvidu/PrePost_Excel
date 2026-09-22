@@ -12,7 +12,7 @@ from PIL import Image
 
 from antenna_audit import catalog
 from antenna_audit.classify.completed import (
-    LEGACY_BANDS,
+    AR_BANDS,
     MAX_COLUMN_DRIFT,
     _nearest_band,
     _read_sheet,
@@ -45,11 +45,11 @@ def _site_with_post(tmp_path: Path):
     return site, {(1, "850_Tilt"): [post_low], (1, "Antenna_M_Tilt"): [post_mech]}
 
 
-def _build(tmp_path: Path):
+def _build(tmp_path: Path, sheet_layout=None):
     site, post = _site_with_post(tmp_path)
     inventory = catalog.scan_site(site)
     preparer = ImagePreparer(tmp_path / "work")
-    plan = build_plan(inventory, preparer, post)
+    plan = build_plan(inventory, preparer, post, sheet_layout)
     out = tmp_path / "done" / "SITEA Antenna Audit Photos.xlsx"
     write_workbook(plan, out, preparer)
     return out
@@ -58,16 +58,10 @@ def _build(tmp_path: Path):
 # --- band assignment ---------------------------------------------------------
 
 def test_a_photo_on_its_band_is_assigned_to_it():
-    for column, expected in (
-        (layout.LEFT_PRE_COL0, "pre"),
-        (layout.LEFT_BEFORE_COL0, "before"),
-        (layout.LEFT_POST_COL0, "post"),
-        (layout.RIGHT_PRE_COL0, "pre"),
-        (layout.RIGHT_BEFORE_COL0, "before"),
-        (layout.RIGHT_POST_COL0, "post"),
-    ):
-        band = _nearest_band(column)
-        assert band is not None and band[1] == expected
+    for side in ("left", "right"):
+        for kind in layout.MANUAL.kinds:
+            band = _nearest_band(layout.MANUAL.col0(side, kind))
+            assert band is not None and band[1] == kind
 
 
 def test_a_hand_pasted_photo_that_drifted_still_lands_in_its_band():
@@ -77,43 +71,48 @@ def test_a_hand_pasted_photo_that_drifted_still_lands_in_its_band():
     nearer one and a drift beyond half that distance belongs to the neighbour —
     which is the right answer, not a miss.
     """
-    spacing = layout.LEFT_BEFORE_COL0 - layout.LEFT_PRE_COL0
-    half_way = spacing // 2
+    post = layout.MANUAL.col0("left", "post")
+    half_way = layout.BAND_STRIDE // 2
     for drift in range(-half_way + 1, half_way):
-        band = _nearest_band(layout.LEFT_POST_COL0 + drift)
+        band = _nearest_band(post + drift)
         assert band is not None
-        assert band[0] == layout.LEFT_POST_COL0, f"drift {drift} left its band"
+        assert band[0] == post, f"drift {drift} left its band"
         assert band[1] == "post"
 
 
-def test_the_legacy_map_is_used_for_two_band_workbooks():
-    """Column 9 was Post before the Before Swap band existed, and still is there.
+def test_the_two_templates_disagree_about_the_same_columns():
+    """Column 9 is Post in an AR sheet and Before Swap in a Manual one.
 
-    Reading an old workbook with the current map would relabel every Post photo
-    in it as Before Swap, quietly poisoning the training data.
+    Reading one with the other's map would relabel every Post photo in it,
+    quietly poisoning the training data.
     """
-    assert _nearest_band(9, LEGACY_BANDS)[1] == "post"
+    assert _nearest_band(9, AR_BANDS)[1] == "post"
     assert _nearest_band(9)[1] == "before"
-    assert _nearest_band(25, LEGACY_BANDS)[1] == "post"
+    assert _nearest_band(25, AR_BANDS)[1] == "post"
     assert _nearest_band(25)[1] == "pre"
 
 
-def test_a_workbook_we_wrote_is_read_with_the_three_band_map(tmp_path):
+def test_each_template_is_read_back_with_its_own_map(tmp_path):
+    """A workbook must be measured against the template it was built to."""
     import zipfile
     from antenna_audit.classify.completed import BANDS
 
-    with zipfile.ZipFile(_build(tmp_path)) as archive:
-        _, bands = _read_sheet(archive, "xl/worksheets/sheet1.xml")
-    assert bands == BANDS
+    for sheet_layout, expected in ((layout.MANUAL, BANDS), (layout.AR, AR_BANDS)):
+        built = _build(tmp_path / sheet_layout.name, sheet_layout)
+        with zipfile.ZipFile(built) as archive:
+            _, bands = _read_sheet(archive, "xl/worksheets/sheet1.xml")
+        assert bands == expected, f"{sheet_layout.name} was read with the wrong map"
 
 
 def test_a_photo_parked_far_outside_the_layout_is_ignored():
-    assert _nearest_band(layout.RIGHT_POST_COL0 + MAX_COLUMN_DRIFT + 20) is None
+    far = layout.MANUAL.col0("right", "post") + MAX_COLUMN_DRIFT + 20
+    assert _nearest_band(far) is None
 
 
 def test_a_photo_parked_in_the_gap_is_still_claimed_by_a_band():
     """The gap column belongs to whichever band is nearer, not to nothing."""
-    assert _nearest_band(layout.LEFT_GAP_COL) is not None
+    gap = layout.MANUAL.col0("left", "pre") + layout.BOX_COLS
+    assert _nearest_band(gap) is not None
 
 
 # --- extraction --------------------------------------------------------------

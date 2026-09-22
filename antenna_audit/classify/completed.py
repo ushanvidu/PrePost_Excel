@@ -36,26 +36,19 @@ _REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _NS = {"xdr": _XDR, "r": _REL, "m": _MAIN}
 
-# Where each column band starts, and which round of photography it holds.
-BANDS = {
-    layout.LEFT_PRE_COL0: "pre",
-    layout.LEFT_BEFORE_COL0: "before",
-    layout.LEFT_POST_COL0: "post",
-    layout.RIGHT_PRE_COL0: "pre",
-    layout.RIGHT_BEFORE_COL0: "before",
-    layout.RIGHT_POST_COL0: "post",
-}
+# Where each column band starts, and which round of photography it holds — one
+# map per template.  The two disagree about almost every column: in an AR sheet
+# column 9 is Post and column 25 the right-hand Pre, while in a Manual sheet
+# those are Before Swap and the right-hand Pre respectively.  Reading a workbook
+# with the wrong map would mislabel every photo in it, so which map to use is
+# decided per workbook rather than assumed.
+BANDS = layout.MANUAL.band_columns()
+AR_BANDS = layout.AR.band_columns()
 
-# Workbooks built before the Before Swap band was added have only two bands per
-# zone, and their columns mean something else entirely: column 9 was Post, not
-# Before Swap, and column 25 was the right-hand Pre, not the right-hand Post.
-# Reading one of those with the current map would mislabel every photo in it, so
-# the old geometry is kept here verbatim rather than derived from ``layout``.
-LEGACY_BANDS = {1: "pre", 9: "post", 17: "pre", 25: "post"}
-
-# The header text that tells the two apart.  A sheet that names the middle band
-# is a three-band sheet; anything else is read with the old map.
-BEFORE_SWAP_HEADER = "Before Swap"
+# The header text that tells them apart.  A sheet that names a Before Swap band
+# was built from the Manual template; anything else is read as AR, which also
+# covers every workbook made before that template existed.
+BEFORE_SWAP_HEADER = layout.BAND_LABELS["before"]
 
 # How far a hand-pasted photo may sit from its band before we stop guessing.
 MAX_COLUMN_DRIFT = 6
@@ -125,7 +118,7 @@ def _read_sheet(
                 three_band = True
             elif text.startswith("Sec ") and not text.startswith("Sector"):
                 found.append((number, _column_index(cell.get("r")), text.strip()))
-    return found, BANDS if three_band else LEGACY_BANDS
+    return found, BANDS if three_band else AR_BANDS
 
 
 def _nearest_band(

@@ -5,11 +5,18 @@ layer effectively works in (1 px = 9525 EMU).  Rows and columns are given fixed
 sizes by the writer so that a position computed here lands where it is expected
 no matter what the reader's default font is.
 
-Each half of the sheet carries three bands, not two: the survey photo, the
-state found immediately before the antenna swap, and the state after it.  Only
-Pre is filled automatically; the other two are drop boxes a person pastes into.
+There are two templates, chosen per site.  **Manual** carries three bands in
+each half of the sheet — the survey photo, the state found immediately before
+the antenna swap, and the state after it.  **AR** is the older shape and has no
+Before Swap band.  Only Pre is ever filled automatically; the rest are drop
+boxes a person pastes into.
 
-Column bands, left to right::
+Both are laid out by the same rule, so adding or removing a band moves
+everything downstream of it without any column being typed out by hand: a
+margin, then each zone's bands at a fixed stride of one band plus one gap
+column, a wider gutter between the two zones, and a margin at the end.
+
+Manual, left to right::
 
     A          margin
     B .. H     electrical tilt, Pre           <- filled from the survey photos
@@ -24,6 +31,18 @@ Column bands, left to right::
     AO         gap
     AP .. AV   mechanical tilt / azimuth, Post
     AW         margin
+
+AR, the same without the Before Swap band::
+
+    A          margin
+    B .. H     electrical tilt, Pre
+    I          gap
+    J .. P     electrical tilt, Post
+    Q          centre gutter
+    R .. X     mechanical tilt / azimuth, Pre
+    Y          gap
+    Z .. AF    mechanical tilt / azimuth, Post
+    AG         margin
 
 Box heights adapt to each photo's aspect ratio.  A landscape tilt shot would
 otherwise sit in the middle of a tall portrait-shaped box with most of the slot
@@ -75,26 +94,111 @@ def px_to_row_height(px: int) -> float:
 # (first_column_index, column_count), zero-based.
 MARGIN_LEFT = 0
 BOX_COLS = 7
-LEFT_PRE_COL0 = 1
-LEFT_GAP_COL = 8
-LEFT_BEFORE_COL0 = 9
-LEFT_GAP2_COL = 16
-LEFT_POST_COL0 = 17
-GUTTER_COL = 24
-RIGHT_PRE_COL0 = 25
-RIGHT_GAP_COL = 32
-RIGHT_BEFORE_COL0 = 33
-RIGHT_GAP2_COL = 40
-RIGHT_POST_COL0 = 41
-MARGIN_RIGHT = 48
-LAST_COL = MARGIN_RIGHT  # banner rows are merged from column A to here
+# One band plus the gap column that follows it.
+BAND_STRIDE = BOX_COLS + 1
 
-# The slot kind each of a zone's three bands holds, in sheet order.  A slot
-# carries its kind rather than its column, and ZonePlan.col0_for turns one into
-# the other, so the two never disagree.
-BAND_KINDS = ("pre", "before", "post")
+# What each band is called wherever a person sees it: the sheet's own header
+# row, the preview, the Values sheet, and the buttons in the browser.
+BAND_LABELS = {"pre": "Pre", "before": "Before Swap", "post": "Post"}
 
 BOX_W_PX = BOX_COLS * BOX_COL_PX  # 448
+
+
+@dataclass(frozen=True)
+class SheetLayout:
+    """Where every column band sits, for one of the two templates.
+
+    A slot carries the *kind* of band it belongs to ("pre", "before", "post")
+    rather than a column number, and this turns one into the other.  Nothing
+    downstream needs to know which template it is working on.
+    """
+
+    name: str                     # the value the CLI and the browser send
+    label: str                    # what a person sees on the button
+    kinds: tuple[str, ...]        # bands per zone, in sheet order
+    left: tuple[int, ...]         # first column of each left-zone band
+    right: tuple[int, ...]        # first column of each right-zone band
+    gutter_col: int
+    last_col: int                 # banner rows are merged from column A to here
+
+    @property
+    def has_before_swap(self) -> bool:
+        return "before" in self.kinds
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """What each band is called, in sheet order."""
+        return tuple(BAND_LABELS[kind] for kind in self.kinds)
+
+    @property
+    def filled_by_hand(self) -> tuple[str, ...]:
+        """The bands nothing is placed into automatically."""
+        return tuple(BAND_LABELS[k] for k in self.kinds if k != "pre")
+
+    def bands(self, side: str) -> tuple[int, ...]:
+        return self.left if side == "left" else self.right
+
+    def col0(self, side: str, kind: str) -> int:
+        """First column of one band, by side of the sheet and slot kind."""
+        return self.bands(side)[self.kinds.index(kind)]
+
+    def band_columns(self) -> dict[str, int]:
+        """Every band's first column, mapped to the kind it holds.
+
+        Used to read a finished workbook back: a photo is matched to the nearest
+        band, and this says what that band means.
+        """
+        return {
+            col0: kind
+            for side in ("left", "right")
+            for kind, col0 in zip(self.kinds, self.bands(side))
+        }
+
+    def column_widths(self) -> dict[int, int]:
+        """Pixel width for every column the sheet uses, by zero-based index."""
+        widths: dict[int, int] = {MARGIN_LEFT: GAP_COL_PX}
+        for side in ("left", "right"):
+            for col0 in self.bands(side):
+                for offset in range(BOX_COLS):
+                    widths[col0 + offset] = BOX_COL_PX
+                # The gap column that follows this band, unless the gutter or
+                # the right margin already occupies that slot.
+                widths.setdefault(col0 + BOX_COLS, GAP_COL_PX)
+        widths[self.gutter_col] = GUTTER_COL_PX
+        widths[self.last_col] = GAP_COL_PX
+        return widths
+
+
+def _make_layout(name: str, label: str, kinds: tuple[str, ...]) -> SheetLayout:
+    """Place ``len(kinds)`` bands per zone at a fixed stride, twice over."""
+    left = tuple(
+        MARGIN_LEFT + 1 + index * BAND_STRIDE for index in range(len(kinds))
+    )
+    gutter = left[-1] + BOX_COLS
+    right = tuple(gutter + 1 + index * BAND_STRIDE for index in range(len(kinds)))
+    return SheetLayout(
+        name=name, label=label, kinds=kinds, left=left, right=right,
+        gutter_col=gutter, last_col=right[-1] + BOX_COLS,
+    )
+
+
+MANUAL = _make_layout("manual", "Manual", ("pre", "before", "post"))
+AR = _make_layout("ar", "AR", ("pre", "post"))
+TEMPLATES = {template.name: template for template in (MANUAL, AR)}
+DEFAULT_TEMPLATE = MANUAL
+
+
+def template(name: str | None) -> SheetLayout:
+    """Look up a template by name, falling back to the default for ``None``."""
+    if not name:
+        return DEFAULT_TEMPLATE
+    try:
+        return TEMPLATES[name.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown template {name!r}; choose one of "
+            f"{', '.join(sorted(TEMPLATES))}"
+        ) from None
 
 # A box is never shorter than MIN nor taller than MAX, whatever the photo's
 # shape.  MIN keeps a wide panorama from collapsing into a letterbox strip that
@@ -189,19 +293,3 @@ def fit_within(img_w: int, img_h: int, box_w: int, box_h: int) -> tuple[int, int
         return box_w, box_h
     scale = min(box_w / img_w, box_h / img_h, 1.0)
     return max(1, round(img_w * scale)), max(1, round(img_h * scale))
-
-
-def column_widths() -> dict[int, int]:
-    """Pixel width for every column the sheet uses, keyed by zero-based index."""
-    widths: dict[int, int] = {MARGIN_LEFT: GAP_COL_PX}
-    for col0 in (
-        LEFT_PRE_COL0, LEFT_BEFORE_COL0, LEFT_POST_COL0,
-        RIGHT_PRE_COL0, RIGHT_BEFORE_COL0, RIGHT_POST_COL0,
-    ):
-        for offset in range(BOX_COLS):
-            widths[col0 + offset] = BOX_COL_PX
-    for gap in (LEFT_GAP_COL, LEFT_GAP2_COL, RIGHT_GAP_COL, RIGHT_GAP2_COL):
-        widths[gap] = GAP_COL_PX
-    widths[GUTTER_COL] = GUTTER_COL_PX
-    widths[MARGIN_RIGHT] = GAP_COL_PX
-    return widths

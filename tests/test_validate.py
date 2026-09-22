@@ -42,7 +42,7 @@ def test_box_above_its_heading_is_detected():
 def test_box_in_the_wrong_column_is_detected():
     plan = build_plan(make_inventory({1: {"850_Tilt": 1}}))
     slot = plan.sectors[0].left.categories[0].slots[0]
-    object.__setattr__(slot.box, "col0", layout.RIGHT_POST_COL0)
+    object.__setattr__(slot.box, "col0", layout.MANUAL.col0("right", "post"))
     assert any("expected" in e for e in check_plan(plan))
 
 

@@ -36,9 +36,24 @@ def full_sector() -> dict[str, int]:
     return {c: 1 for c in ELECTRICAL_TILT_CATEGORIES + MECHANICAL_AZIMUTH_CATEGORIES}
 
 
-def test_nothing_overlaps_in_a_complete_site():
-    plan = build_plan(make_inventory({1: full_sector(), 2: full_sector()}))
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_nothing_overlaps_in_a_complete_site(sheet_layout):
+    plan = build_plan(make_inventory({1: full_sector(), 2: full_sector()}),
+                      sheet_layout=sheet_layout)
     assert check_plan(plan) == []
+
+
+def test_the_ar_template_has_no_before_swap_slot():
+    plan = build_plan(make_inventory({1: full_sector()}), sheet_layout=layout.AR)
+    kinds = {
+        slot.kind
+        for sector in plan.sectors
+        for zone in (sector.left, sector.right)
+        for category in zone.categories
+        for slot in category.slots
+    }
+    assert kinds == {"pre", "post"}
 
 
 def test_nothing_overlaps_when_categories_are_missing():
@@ -64,28 +79,34 @@ def test_missing_category_still_gets_a_slot():
     assert len(plan.missing_slots) == 4 + len(MECHANICAL_AZIMUTH_CATEGORIES)
 
 
-def test_all_three_bands_are_aligned_and_same_height():
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_every_band_is_aligned_and_the_same_height(sheet_layout):
     plan = build_plan(make_inventory({1: full_sector(), 2: {c: 3 for c in
-                                      ELECTRICAL_TILT_CATEGORIES}}))
+                                      ELECTRICAL_TILT_CATEGORIES}}),
+                      sheet_layout=sheet_layout)
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
+            assert zone.kinds == sheet_layout.kinds
             for category in zone.categories:
                 rows = [
                     [s for s in category.slots if s.kind == kind]
-                    for kind in layout.BAND_KINDS
+                    for kind in sheet_layout.kinds
                 ]
                 assert len({len(band) for band in rows}) == 1, "bands differ in length"
-                for pre, before, post in zip(*rows):
-                    for slot in (before, post):
+                for slots in zip(*rows):
+                    pre = slots[0]
+                    for slot, kind in zip(slots, sheet_layout.kinds):
                         assert slot.box.row0 == pre.box.row0
                         assert slot.box.rows == pre.box.rows
-                    assert pre.box.col0 == zone.pre_col0
-                    assert before.box.col0 == zone.before_col0
-                    assert post.box.col0 == zone.post_col0
+                        assert slot.box.col0 == zone.col0_for(kind)
 
 
-def test_drop_box_bands_never_hold_a_photo():
-    plan = build_plan(make_inventory({1: full_sector()}))
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_drop_box_bands_never_hold_a_photo(sheet_layout):
+    plan = build_plan(make_inventory({1: full_sector()}),
+                      sheet_layout=sheet_layout)
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
             for category in zone.categories:

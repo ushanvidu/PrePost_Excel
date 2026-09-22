@@ -54,7 +54,7 @@ def check_plan(plan: SheetPlan) -> list[str]:
     for sector in plan.sectors:
         # Banner and header rows span the sheet, so a box that runs into one is
         # just as broken as two boxes that collide.  They must be in the set.
-        full_width = layout.LAST_COL + 1
+        full_width = plan.sheet_layout.last_col + 1
         for row, what in (
             (sector.banner_row, f"S{sector.number} banner"),
             (sector.zone_header_row, f"S{sector.number} zone header"),

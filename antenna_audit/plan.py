@@ -35,40 +35,46 @@ class SlotPlan:
 
 @dataclass
 class CategoryPlan:
-    """A heading plus the boxes underneath it, repeated over all three bands."""
+    """A heading plus the boxes underneath it, repeated over every band."""
 
     category: str
     heading: str
     heading_row: int
-    heading_col: int
-    heading_before_col: int
-    heading_post_col: int
+    heading_cols: tuple[int, ...]
     slots: list[SlotPlan] = field(default_factory=list)
 
     @property
-    def heading_cols(self) -> tuple[int, int, int]:
-        """The column each band's copy of the heading starts at, in sheet order."""
-        return (self.heading_col, self.heading_before_col, self.heading_post_col)
+    def heading_col(self) -> int:
+        """Where the leftmost (Pre) copy of the heading starts."""
+        return self.heading_cols[0]
 
 
 @dataclass
 class ZonePlan:
-    """One half of a sector: the three photo columns for a group of categories."""
+    """One half of a sector: the photo columns for a group of categories."""
 
     title: str
-    pre_col0: int
-    before_col0: int
-    post_col0: int
+    kinds: tuple[str, ...]
+    band_cols: tuple[int, ...]
     categories: list[CategoryPlan] = field(default_factory=list)
     end_row: int = 0
 
     def col0_for(self, kind: str) -> int:
         """Where the band holding slots of this kind starts."""
-        return {
-            "pre": self.pre_col0,
-            "before": self.before_col0,
-            "post": self.post_col0,
-        }[kind]
+        return self.band_cols[self.kinds.index(kind)]
+
+    @property
+    def pre_col0(self) -> int:
+        return self.col0_for("pre")
+
+    @property
+    def post_col0(self) -> int:
+        return self.col0_for("post")
+
+    @property
+    def before_col0(self) -> int:
+        """Only the Manual template has this band."""
+        return self.col0_for("before")
 
 
 @dataclass
@@ -91,6 +97,7 @@ class SheetPlan:
     site: str
     title_row: int
     subtitle_row: int
+    sheet_layout: layout.SheetLayout = layout.DEFAULT_TEMPLATE
     sectors: list[SectorPlan] = field(default_factory=list)
     total_rows: int = 0
     placed_photos: int = 0
@@ -108,11 +115,17 @@ def _box_rows_for(photo: Photo, preparer: ImagePreparer | None) -> int:
     return layout.rows_for_photo(prepared.width, prepared.height)
 
 
+# What a band holds when nothing is placed in it automatically.
+DROP_BOX_TEXT = {
+    "before": "Paste Before Swap photo here",
+    "post": "Paste Post photo here",
+}
+
+
 def _plan_zone(
     title: str,
-    pre_col0: int,
-    before_col0: int,
-    post_col0: int,
+    side: str,
+    sheet_layout: layout.SheetLayout,
     categories: list[str],
     sector: int,
     inventory: SiteInventory,
@@ -121,9 +134,9 @@ def _plan_zone(
     preparer: ImagePreparer | None,
     post_photos: dict[tuple[int, str], list[Path]] | None = None,
 ) -> tuple[ZonePlan, int]:
+    band_cols = sheet_layout.bands(side)
     zone = ZonePlan(
-        title=title, pre_col0=pre_col0, before_col0=before_col0,
-        post_col0=post_col0,
+        title=title, kinds=sheet_layout.kinds, band_cols=band_cols,
     )
     row = start_row
 
@@ -134,14 +147,12 @@ def _plan_zone(
             category=category,
             heading=heading,
             heading_row=row,
-            heading_col=pre_col0,
-            heading_before_col=before_col0,
-            heading_post_col=post_col0,
+            heading_cols=band_cols,
         )
         box_row = row + layout.HEADING_ROWS + layout.HEADING_GAP_ROWS
 
-        # Size every box first: both drop boxes mirror the height of the Pre
-        # photo facing them, so the three columns stay aligned all the way down.
+        # Size every box first: each drop box mirrors the height of the Pre
+        # photo facing it, so the bands stay aligned all the way down.
         box_heights = [_box_rows_for(photo, preparer) for photo in photos]
         if not box_heights:
             box_heights = [layout.DEFAULT_BOX_H_PX // layout.ROW_PX]
@@ -154,41 +165,30 @@ def _plan_zone(
             photo = photos[index] if index < len(photos) else None
             if photo is None:
                 missing.append(f"Sector {sector} — {heading}")
-            plan.slots.append(
-                SlotPlan(
-                    layout.Box(pre_col0, top, rows=height),
-                    photo,
-                    "pre",
-                    "" if photo else "No Pre photo",
-                )
-            )
-            # The Before Swap band is never filled automatically: nothing in
-            # the survey documents that round.  It is always a drop box.
-            plan.slots.append(
-                SlotPlan(
-                    layout.Box(before_col0, top, rows=height),
-                    None,
-                    "before",
-                    "Paste Before Swap photo here",
-                )
-            )
             # Post photos arrive as bare paths from the classifier; wrap them so
             # every slot carries the same shape and the writer needs no special
-            # case.
+            # case.  The Before Swap band is never filled automatically —
+            # nothing in the survey documents that round.
             post_path = matched_post[index] if index < len(matched_post) else None
             post = (
                 Photo(path=post_path, sector=sector, category=category,
                       sequence=index + 1)
                 if post_path is not None else None
             )
-            plan.slots.append(
-                SlotPlan(
-                    layout.Box(post_col0, top, rows=height),
-                    post,
-                    "post",
-                    "" if post else "Paste Post photo here",
+            placed = {"pre": photo, "post": post}
+
+            for kind, col0 in zip(sheet_layout.kinds, band_cols):
+                found = placed.get(kind)
+                plan.slots.append(
+                    SlotPlan(
+                        layout.Box(col0, top, rows=height),
+                        found,
+                        kind,
+                        "" if found else (
+                            DROP_BOX_TEXT.get(kind, "No Pre photo")
+                        ),
+                    )
                 )
-            )
             top += height + layout.PHOTO_GAP_ROWS
 
         zone.categories.append(plan)
@@ -202,6 +202,7 @@ def build_plan(
     inventory: SiteInventory,
     preparer: ImagePreparer | None = None,
     post_photos: dict[tuple[int, str], list[Path]] | None = None,
+    sheet_layout: layout.SheetLayout | None = None,
 ) -> SheetPlan:
     """Compute the full sheet plan for one site.
 
@@ -214,7 +215,11 @@ def build_plan(
     box, so a slot the classifier could not resolve still reads as "fill this in
     by hand" rather than silently carrying a wrong photo.
     """
-    plan = SheetPlan(site=inventory.site, title_row=1, subtitle_row=2)
+    sheet_layout = sheet_layout or layout.DEFAULT_TEMPLATE
+    plan = SheetPlan(
+        site=inventory.site, title_row=1, subtitle_row=2,
+        sheet_layout=sheet_layout,
+    )
     row = layout.TITLE_ROWS + 1
 
     for sector in inventory.sectors:
@@ -225,9 +230,8 @@ def build_plan(
 
         left, left_end = _plan_zone(
             "Electrical Tilt",
-            layout.LEFT_PRE_COL0,
-            layout.LEFT_BEFORE_COL0,
-            layout.LEFT_POST_COL0,
+            "left",
+            sheet_layout,
             ELECTRICAL_TILT_CATEGORIES,
             sector,
             inventory,
@@ -238,9 +242,8 @@ def build_plan(
         )
         right, right_end = _plan_zone(
             "Mechanical Tilt & Azimuth",
-            layout.RIGHT_PRE_COL0,
-            layout.RIGHT_BEFORE_COL0,
-            layout.RIGHT_POST_COL0,
+            "right",
+            sheet_layout,
             MECHANICAL_AZIMUTH_CATEGORIES,
             sector,
             inventory,

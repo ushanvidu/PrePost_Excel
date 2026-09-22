@@ -12,9 +12,11 @@ from antenna_audit.dedupe import deduplicate_media
 from antenna_audit.imaging import ImagePreparer
 from antenna_audit.plan import build_plan
 from antenna_audit.validate import check_plan, check_workbook
+from antenna_audit import layout
 from antenna_audit.workbook import (
     VALUES_ROWS,
     VALUES_SHEET_TITLE,
+    values_columns,
     write_workbook,
 )
 
@@ -41,10 +43,10 @@ def site_dir(tmp_path: Path) -> Path:
     return site
 
 
-def build(site_dir: Path, tmp_path: Path, **kwargs):
+def build(site_dir: Path, tmp_path: Path, sheet_layout=None, **kwargs):
     inventory = catalog.scan_site(site_dir)
     preparer = ImagePreparer(tmp_path / "work", **kwargs)
-    plan = build_plan(inventory, preparer)
+    plan = build_plan(inventory, preparer, sheet_layout=sheet_layout)
     out = tmp_path / "out" / "ZZTEST1.xlsx"
     result = write_workbook(plan, out, preparer)
     return plan, result, out
@@ -153,3 +155,43 @@ def test_the_photo_sheet_is_still_the_first_sheet(site_dir, tmp_path):
     plan, _, out = build(site_dir, tmp_path)
     wb = load_workbook(out)
     assert wb.sheetnames == [plan.site[:31], VALUES_SHEET_TITLE]
+
+
+def test_the_ar_template_drops_the_before_swap_column_everywhere(site_dir, tmp_path):
+    """The older sheet must carry no trace of a band it does not have."""
+    plan, _, out = build(site_dir, tmp_path, sheet_layout=layout.AR)
+    assert check_plan(plan) == []
+    assert check_workbook(out).ok
+
+    wb = load_workbook(out)
+    ws = wb.active
+    texts = {
+        cell.value
+        for row in ws.iter_rows()
+        for cell in row
+        if isinstance(cell.value, str)
+    }
+    assert "Before Swap" not in texts
+    assert "Paste Before Swap photo here" not in texts
+    assert "Post" in texts
+
+    values = wb[VALUES_SHEET_TITLE]
+    assert [values.cell(row=1, column=c).value for c in range(1, 6)] == [
+        "sector", None, "Pre", "Post", "Plan",
+    ]
+
+
+def test_the_ar_sheet_is_narrower_than_the_manual_one(site_dir, tmp_path):
+    manual, _, _ = build(site_dir, tmp_path / "m")
+    ar, _, _ = build(site_dir, tmp_path / "a", sheet_layout=layout.AR)
+    assert ar.sheet_layout.last_col < manual.sheet_layout.last_col
+    # One band per zone fewer, and one gap column with it.
+    assert (manual.sheet_layout.last_col - ar.sheet_layout.last_col
+            == 2 * layout.BAND_STRIDE)
+
+
+def test_values_columns_follow_the_template(site_dir, tmp_path):
+    assert values_columns(layout.MANUAL) == (
+        "sector", None, "Pre", "Before Swap", "Post", "Plan",
+    )
+    assert values_columns(layout.AR) == ("sector", None, "Pre", "Post", "Plan")

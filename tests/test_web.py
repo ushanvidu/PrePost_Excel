@@ -1,6 +1,7 @@
 """The web app: folder grouping, error handling, and downloads."""
 
 import io
+import json
 import time
 import zipfile
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from antenna_audit import layout
 from antenna_audit.web.server import create_app
 
 PREFIX = "Sector_{s}_RF_Antenna_Photos_Sector_{s}_RF_Antenna_Photos_Ant_Sec_{s}_"
@@ -247,3 +249,76 @@ def test_building_without_post_photos_still_works(client, tmp_path):
     job = wait_for(client, job_id)
     assert job["readyCount"] == 1
     assert job["sites"][0]["postPlaced"] == 0
+
+
+# --- choosing a template per site --------------------------------------------
+
+def test_the_page_offers_both_templates(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-template="manual"' in html
+    assert 'data-template="ar"' in html
+    assert 'id="site-templates"' in html
+
+
+def test_each_site_is_built_to_the_template_it_was_given(client):
+    """Two folders in one upload, each asking for a different template."""
+    parts = site_files("SITEAAA") + site_files("SITEBBB")
+    response = client.post(
+        "/api/build",
+        data={
+            "files": parts,
+            "templates": json.dumps({"SITEAAA": "ar", "SITEBBB": "manual"}),
+        },
+        content_type="multipart/form-data",
+    )
+    job = wait_for(client, response.get_json()["id"])
+    chosen = {s["name"]: s["template"] for s in job["sites"]}
+    assert chosen == {"SITEAAA": "ar", "SITEBBB": "manual"}
+
+    # The workbook itself must carry the bands the choice implies.
+    for site, expected in (("SITEAAA", False), ("SITEBBB", True)):
+        body = client.get(
+            f"/api/job/{job['id']}/file/{site} Antenna Audit Photos.xlsx"
+        ).data
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            sheet = archive.read("xl/worksheets/sheet1.xml").decode()
+        assert ("Before Swap" in sheet) is expected, site
+
+
+def test_a_site_with_no_choice_falls_back_to_the_default(client):
+    response = client.post(
+        "/api/build",
+        data={"files": site_files("SITEAAA"), "templates": json.dumps({})},
+        content_type="multipart/form-data",
+    )
+    job = wait_for(client, response.get_json()["id"])
+    assert job["sites"][0]["template"] == layout.DEFAULT_TEMPLATE.name
+
+
+def test_a_template_name_the_builder_would_reject_is_ignored(client):
+    """A bad name can only come from a broken page, so the site still builds."""
+    response = client.post(
+        "/api/build",
+        data={
+            "files": site_files("SITEAAA"),
+            "templates": json.dumps({"SITEAAA": "nonsense"}),
+        },
+        content_type="multipart/form-data",
+    )
+    job = wait_for(client, response.get_json()["id"])
+    assert job["sites"][0]["state"] == "done"
+    assert job["sites"][0]["template"] == layout.DEFAULT_TEMPLATE.name
+
+
+def test_local_sites_lists_the_folders_a_path_holds(client, tmp_path):
+    for name in ("SITEBBB", "SITEAAA"):
+        (tmp_path / name).mkdir()
+    response = client.post("/api/local-sites", json={"path": str(tmp_path)})
+    assert response.status_code == 200
+    assert response.get_json()["sites"] == ["SITEAAA", "SITEBBB"]
+
+
+def test_local_sites_reports_a_path_that_is_not_there(client):
+    response = client.post("/api/local-sites", json={"path": "/no/such/folder"})
+    assert response.status_code == 400
+    assert response.get_json()["sites"] == []

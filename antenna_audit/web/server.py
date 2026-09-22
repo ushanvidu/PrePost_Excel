@@ -12,6 +12,7 @@ already sitting on the machine running the app.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import threading
@@ -23,6 +24,7 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
+from .. import layout
 from ..imaging import DEFAULT_MAX_DIM
 from .jobs import JobStore, bundle, run_job
 
@@ -76,13 +78,24 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("index.html", default_max_dim=DEFAULT_MAX_DIM)
+        return render_template(
+            "index.html",
+            default_max_dim=DEFAULT_MAX_DIM,
+            templates=[
+                {"name": t.name, "label": t.label,
+                 "hint": ("has a Before Swap column" if t.has_before_swap
+                          else "no Before Swap column")}
+                for t in (layout.MANUAL, layout.AR)
+            ],
+            default_template=layout.DEFAULT_TEMPLATE.name,
+        )
 
     @app.post("/api/build")
     def start_build():
         """Accept uploaded folders and start a build."""
         max_dim = _read_max_dim(request.form.get("maxDim"))
-        job = store.create(max_dim)
+        job = store.create(max_dim, templates=_read_templates(
+            request.form.get("templates")))
 
         uploaded = request.files.getlist("files")
         if not uploaded:
@@ -105,6 +118,24 @@ def create_app() -> Flask:
         _start(job)
         return jsonify(job.as_dict())
 
+    @app.post("/api/local-sites")
+    def local_sites():
+        """Name the site folders under a path, so the page can offer a
+        template button for each one before anything is built."""
+        payload = request.get_json(silent=True) or {}
+        raw_path = (payload.get("path") or "").strip()
+        if not raw_path:
+            return jsonify(sites=[])
+        root = Path(raw_path).expanduser()
+        if not root.is_dir():
+            return jsonify(error=f"Not a folder: {root}", sites=[]), 400
+        children = sorted(
+            d.name for d in root.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        )
+        # A folder of site folders, or a single site folder holding photos.
+        return jsonify(sites=children or [root.name])
+
     @app.post("/api/build-local")
     def start_local_build():
         """Build from a folder already on this machine, without copying it."""
@@ -124,7 +155,8 @@ def create_app() -> Flask:
         # A folder of site folders, or a single site folder holding photos.
         site_dirs = children or [root]
 
-        job = store.create(_read_max_dim(payload.get("maxDim")))
+        job = store.create(_read_max_dim(payload.get("maxDim")),
+                           templates=_read_templates(payload.get("templates")))
         linked = 0
         for site_dir in site_dirs:
             images = [
@@ -249,6 +281,27 @@ def create_app() -> Flask:
         thread.start()
 
     return app
+
+
+def _read_templates(value) -> dict[str, str]:
+    """Per-site template choices, as {site: template name}.
+
+    Arrives as a JSON object from the browser, or already decoded from a JSON
+    request body.  Names are validated here so a typo cannot reach the builder;
+    anything unrecognised is dropped and the site falls back to the default.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.strip() else {}
+        except ValueError:
+            return {}
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(site): str(name)
+        for site, name in value.items()
+        if str(name) in layout.TEMPLATES
+    }
 
 
 def _read_max_dim(value) -> int | None:
