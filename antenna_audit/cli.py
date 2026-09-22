@@ -12,6 +12,7 @@ from pathlib import Path
 from . import catalog
 from .dedupe import deduplicate_media
 from .imaging import DEFAULT_MAX_DIM, ImagePreparer
+from . import layout
 from .plan import build_plan
 from .validate import check_plan, check_workbook
 from .preview import render_preview
@@ -74,6 +75,28 @@ def _resolve_post_photos(args: argparse.Namespace, site: str):
     return to_post_photos(assignments)
 
 
+def _templates_for(args: argparse.Namespace) -> tuple[object, dict[str, object]]:
+    """The default template, plus any per-site overrides, resolved up front.
+
+    Resolving before the build starts means a misspelled template name stops the
+    run immediately rather than after some workbooks have already been written.
+    """
+    default = layout.template(args.template)
+    per_site: dict[str, object] = {}
+    for item in args.site_template or []:
+        site, _, name = item.partition("=")
+        if not site or not name:
+            sys.exit(
+                f"--site-template needs SITE=TEMPLATE, got {item!r} "
+                f"(templates: {', '.join(sorted(layout.TEMPLATES))})"
+            )
+        try:
+            per_site[site.strip()] = layout.template(name)
+        except ValueError as exc:
+            sys.exit(str(exc))
+    return default, per_site
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     images_root = Path(args.images_root).expanduser().resolve()
     out_dir = Path(args.out).expanduser().resolve()
@@ -83,6 +106,14 @@ def cmd_build(args: argparse.Namespace) -> int:
     inventories = _select(catalog.scan_root(images_root), args.site)
     if not inventories:
         sys.exit(f"No site folders found under {images_root}")
+
+    default_template, site_templates = _templates_for(args)
+    unknown = set(site_templates) - {inv.site for inv in inventories}
+    if unknown:
+        sys.exit(
+            "--site-template names a site that is not being built: "
+            + ", ".join(sorted(unknown))
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     max_dim = None if args.full_res else args.max_dim
@@ -98,7 +129,8 @@ def cmd_build(args: argparse.Namespace) -> int:
 
             preparer = ImagePreparer(work_root / inventory.site, max_dim=max_dim)
             post_photos = _resolve_post_photos(args, inventory.site)
-            plan = build_plan(inventory, preparer, post_photos)
+            sheet_layout = site_templates.get(inventory.site, default_template)
+            plan = build_plan(inventory, preparer, post_photos, sheet_layout)
             out_path = out_dir / f"{inventory.site} Antenna Audit Photos.xlsx"
 
             layout_errors = check_plan(plan)
@@ -123,7 +155,8 @@ def cmd_build(args: argparse.Namespace) -> int:
             post_note = (f", {plan.placed_post_photos} Post"
                          if plan.placed_post_photos else "")
             print(
-                f"  {inventory.site:<10} {len(plan.sectors)} sectors, "
+                f"  {inventory.site:<10} [{plan.sheet_layout.label}] "
+                f"{len(plan.sectors)} sectors, "
                 f"{result.photos_placed:>3} photos{post_note}, "
                 f"{plan.total_rows:>4} rows, {size}{saved}"
             )
@@ -347,6 +380,14 @@ def build_parser() -> argparse.ArgumentParser:
                        help="embed photos at original resolution")
     build.add_argument("--no-dedupe", action="store_true",
                        help="keep a separate copy of every embedded image")
+    build.add_argument("--template", default=layout.DEFAULT_TEMPLATE.name,
+                       choices=sorted(layout.TEMPLATES),
+                       help="sheet template for every site "
+                            f"(default {layout.DEFAULT_TEMPLATE.name}); "
+                            "'manual' has a Before Swap column, 'ar' does not")
+    build.add_argument("--site-template", action="append", metavar="SITE=TEMPLATE",
+                       help="override the template for one site, e.g. "
+                            "--site-template GMWTP2=ar (repeatable)")
     build.add_argument("--post-root",
                        help="folder of Post photos (one sub-folder per site, "
                             "each holding S1, S2, … sector folders)")

@@ -102,6 +102,18 @@ Post photos in the Post columns. Download them one at a time or all as a `.zip`.
 The Post folder is optional: leave it out and you get a sheet with blank Post
 boxes to fill in by hand, exactly as before.
 
+### Choosing a template
+
+Two buttons — **Manual** and **AR** — set the template for every site, and each
+site listed underneath gets its own pair so you can override just that one. A
+site you have not touched follows the default and says so; one you have picked
+for yourself is marked `overridden` and stays put when you change the default.
+The template each site was built to is shown on its card afterwards.
+
+The per-site buttons appear for both ways in: from the folders you have queued
+when uploading, and from the folder names on disk once you have entered a path.
+See [Sheet layout](#sheet-layout) for what the two templates differ in.
+
 ### Two ways to give it folders
 
 | | When to use it |
@@ -120,8 +132,8 @@ Post — grouped by sector, so there is one level more
                         S2/ ...
 ```
 
-Each site card shows how many Pre and Post photos landed, and how many Post slots
-were left empty for you. Those are the ones the classifier would only have been
+Each site card shows which template it was built to, how many Pre and Post
+photos landed, and how many Post slots were left empty for you. Those are the ones the classifier would only have been
 guessing at — open the review screen, settle them, and build again.
 
 ### What it tells you
@@ -154,7 +166,15 @@ python -m antenna_audit build \
 python -m antenna_audit build \
     --images-root Documents/IMAGE-P202506262207_D001-20260 \
     --out output --site GMTHI1 --preview
+
+# Manual everywhere except one site, which gets the older AR sheet
+python -m antenna_audit build \
+    --images-root Documents/IMAGE-P202506262207_D001-20260 \
+    --out output --site-template GMWTP2=ar
 ```
+
+Each line of the build log names the template that site was built to, e.g.
+`GMWTP2   [AR] 3 sectors, …`.
 
 Output is `output/<SITE> Antenna Audit Photos.xlsx` — **one workbook per site**.
 
@@ -167,18 +187,50 @@ banner. Inside a sector the sheet splits in half:
 
 ```
 ┌──────────────────────────────────────┬──────────────────────────────────────┐
-│            Electrical Tilt           │      Mechanical Tilt & Azimuth       │
-├──────────────────┬───────────────────┼──────────────────┬───────────────────┤
-│       Pre        │       Post        │       Pre        │       Post        │
-├──────────────────┼───────────────────┼──────────────────┼───────────────────┤
-│ Sec 1_ 850 Tilt  │ Sec 1_ 850 Tilt   │ Sec 1 Ant M Tilt │ Sec 1 Ant M Tilt  │
-│ ┌──────────────┐ │ ┌ ─ ─ ─ ─ ─ ─ ─┐  │ ┌──────────────┐ │ ┌ ─ ─ ─ ─ ─ ─ ─┐  │
-│ │   [photo]    │ │ │ paste here   │  │ │   [photo]    │ │ │ paste here   │  │
-│ └──────────────┘ │ └ ─ ─ ─ ─ ─ ─ ─┘  │ └──────────────┘ │ └ ─ ─ ─ ─ ─ ─ ─┘  │
-│ Sec 1_ 900 Tilt  │ Sec 1_ 900 Tilt   │ Sec 1 Azimuth    │ Sec 1 Azimuth     │
-│        …         │         …         │        …         │         …         │
-└──────────────────┴───────────────────┴──────────────────┴───────────────────┘
+│           Electrical Tilt            │      Mechanical Tilt & Azimuth       │
+├────────────┬────────────┬────────────┼────────────┬────────────┬────────────┤
+│    Pre     │Before Swap │    Post    │    Pre     │Before Swap │    Post    │
+├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
+│  850 Tilt  │  850 Tilt  │  850 Tilt  │ Ant M Tilt │ Ant M Tilt │ Ant M Tilt │
+│ ┌────────┐ │ ┌ ─ ─ ─ ─┐ │ ┌ ─ ─ ─ ─┐ │ ┌────────┐ │ ┌ ─ ─ ─ ─┐ │ ┌ ─ ─ ─ ─┐ │
+│ │[photo] │ │ │ paste  │ │ │ paste  │ │ │[photo] │ │ │ paste  │ │ │ paste  │ │
+│ └────────┘ │ └ ─ ─ ─ ─┘ │ └ ─ ─ ─ ─┘ │ └────────┘ │ └ ─ ─ ─ ─┘ │ └ ─ ─ ─ ─┘ │
+│  900 Tilt  │  900 Tilt  │  900 Tilt  │  Azimuth   │  Azimuth   │  Azimuth   │
+│     …      │     …      │     …      │     …      │     …      │     …      │
+└────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
 ```
+
+Only **Pre** is ever filled from the survey; the rest are drop boxes a person
+pastes into.
+
+### Two templates, chosen per site
+
+| | Bands per half | Electrical Tilt | Mechanical Tilt & Azimuth |
+|---|---|---|---|
+| **Manual** (default) | Pre · Before Swap · Post | B–H, J–P, R–X | Z–AF, AH–AN, AP–AV |
+| **AR** | Pre · Post | B–H, J–P | R–X, Z–AF |
+
+**AR** is the older shape and has no Before Swap column; it is what every
+workbook built before that column existed looks like. Its Values sheet drops the
+Before Swap column to match.
+
+Pick one per site — buttons in the browser, or on the command line:
+
+```bash
+# everything AR
+antenna-audit build --images-root … --out … --template ar
+
+# Manual everywhere except one site
+antenna-audit build --images-root … --out … --site-template GMWTP2=ar
+```
+
+Both are laid out by one rule — a margin, then each zone's bands at a fixed
+stride of one band plus a gap column, a gutter between the zones, a margin at
+the end — so neither set of column letters above is typed out anywhere in the
+code. Reading a finished workbook back works the same way round: a sheet is
+measured against the template it names in its own header row, because the same
+column means different things in the two (column J is Before Swap in a Manual
+sheet and Post in an AR one).
 
 **Left half — Electrical Tilt**, one heading per band, in this order:
 `850 Tilt`, `900 Tilt`, `1800 Tilt 1`, `1800 Tilt 2`, `2100 Tilt`.
@@ -186,9 +238,17 @@ banner. Inside a sector the sheet splits in half:
 **Right half — Mechanical Tilt & Azimuth**:
 `Antenna M Tilt`, `Antenna Azimuth Photo`, `Antenna Coverage Photo`.
 
-The photo always sits **directly underneath its heading**. Every Post box is the
-same size and on the same rows as the Pre photo facing it, so a pasted Post photo
+The photo always sits **directly underneath its heading**. Every drop box is the
+same size and on the same rows as the Pre photo facing it, so a pasted photo
 lines up without any manual nudging.
+
+### The Values sheet
+
+Every workbook carries a second sheet, `Values`, holding the readings that go
+with the photos: one row per sector per measured quantity, with columns
+`sector | label | Pre | Before Swap | Post | Plan`. The scaffold is written for
+you; the numbers come off instruments in the field, so the value cells are left
+empty to fill in. Column G is free for remarks.
 
 ### Rules the sheet follows
 
@@ -216,6 +276,8 @@ left out.
 | `--images-root DIR` | Folder holding one sub-folder per site. Required. |
 | `--out DIR` | Where the workbooks are written. Required. |
 | `--site NAME` | Build only this site. Repeatable. |
+| `--template NAME` | Sheet template for every site: `manual` (default) or `ar`. |
+| `--site-template SITE=NAME` | Override the template for one site, e.g. `GMWTP2=ar`. Repeatable. |
 | `--max-dim N` | Downscale photos to this long edge (default `2400`). |
 | `--full-res` | Embed photos at original resolution instead. |
 | `--no-dedupe` | Keep a separate copy of every embedded image. |

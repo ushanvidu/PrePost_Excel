@@ -22,8 +22,11 @@ MUTED = (77, 87, 97)
 FAINT = (154, 165, 177)
 BANNER_BG = (31, 41, 51)
 ZONE_BG = (228, 231, 235)
-PRE_BG = (220, 235, 220)
-POST_BG = (246, 231, 220)
+BAND_BG = {
+    "pre": (220, 235, 220),
+    "before": (231, 227, 242),
+    "post": (246, 231, 220),
+}
 PLACEHOLDER_BG = (250, 251, 252)
 MISSING_BG = (253, 243, 243)
 MISSING_INK = (176, 74, 74)
@@ -51,11 +54,11 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def _column_x() -> dict[int, int]:
+def _column_x(sheet_layout: layout.SheetLayout) -> dict[int, int]:
     """Left edge, in pixels, of every column the sheet uses."""
-    widths = layout.column_widths()
+    widths = sheet_layout.column_widths()
     x, edges = 0, {}
-    for col in range(0, layout.LAST_COL + 2):
+    for col in range(0, sheet_layout.last_col + 2):
         edges[col] = x
         x += widths.get(col, layout.BOX_COL_PX)
     return edges
@@ -87,12 +90,12 @@ def render_preview(
     max_sectors: int | None = None,
 ) -> Path:
     """Draw ``plan`` to a PNG at ``out_path``."""
-    edges = _column_x()
+    edges = _column_x(plan.sheet_layout)
     tops = _row_y(plan)
     sectors = plan.sectors[:max_sectors] if max_sectors else plan.sectors
     last_row = sectors[-1].end_row if sectors else plan.total_rows
 
-    width = edges[layout.LAST_COL + 1]
+    width = edges[plan.sheet_layout.last_col + 1]
     height = tops.get(last_row + 3, (last_row + 3) * layout.ROW_PX)
 
     canvas = Image.new("RGB", (width, height), PAGE_BG)
@@ -103,12 +106,14 @@ def render_preview(
 
     draw.text((edges[0], y(plan.title_row)),
               f"{plan.site} — Antenna Audit Photos", font=_font(22, True), fill=INK)
+    by_hand = " and ".join(plan.sheet_layout.filled_by_hand)
     draw.text((edges[0], y(plan.subtitle_row) + 4),
-              "Pre photos placed automatically. Post photos pasted by hand.",
+              f"Pre photos placed automatically. {by_hand} photos pasted by hand.",
               font=_font(13), fill=MUTED)
 
     for sector in sectors:
-        _draw_sector(draw, canvas, sector, edges, y, preparer)
+        _draw_sector(draw, canvas, sector, edges, y, preparer,
+                     plan.sheet_layout)
 
     if SCALE != 1.0:
         canvas = canvas.resize(
@@ -120,13 +125,13 @@ def render_preview(
     return out_path
 
 
-def _draw_sector(draw, canvas, sector, edges, y, preparer) -> None:
+def _draw_sector(draw, canvas, sector, edges, y, preparer, sheet_layout) -> None:
     banner_font = _font(15, True)
     zone_font = _font(12, True)
     heading_font = _font(12, True)
     note_font = _font(11)
 
-    x0, x1 = edges[layout.MARGIN_LEFT], edges[layout.LAST_COL + 1]
+    x0, x1 = edges[layout.MARGIN_LEFT], edges[sheet_layout.last_col + 1]
     top = y(sector.banner_row)
     draw.rectangle([x0, top, x1, top + layout.ROW_PX + 6], fill=BANNER_BG)
     draw.text((x0 + 10, top + 4), f"Sector {sector.number}",
@@ -140,17 +145,15 @@ def _draw_sector(draw, canvas, sector, edges, y, preparer) -> None:
         draw.text((zx0 + 6, zy + 3), zone.title, font=zone_font, fill=INK)
 
         py = y(sector.prepost_header_row) + 6
-        for col0, label, colour in (
-            (zone.pre_col0, "Pre", PRE_BG),
-            (zone.post_col0, "Post", POST_BG),
-        ):
+        for kind, col0 in zip(zone.kinds, zone.band_cols):
             bx0, bx1 = edges[col0], edges[col0 + layout.BOX_COLS]
-            draw.rectangle([bx0, py, bx1, py + layout.ROW_PX], fill=colour)
-            draw.text((bx0 + 6, py + 3), label, font=zone_font, fill=INK)
+            draw.rectangle([bx0, py, bx1, py + layout.ROW_PX], fill=BAND_BG[kind])
+            draw.text((bx0 + 6, py + 3), layout.BAND_LABELS[kind],
+                      font=zone_font, fill=INK)
 
         for category in zone.categories:
             hy = y(category.heading_row)
-            for col0 in (category.heading_col, category.heading_post_col):
+            for col0 in category.heading_cols:
                 draw.text((edges[col0] + 2, hy + 3), category.heading,
                           font=heading_font, fill=MUTED)
             for slot in category.slots:

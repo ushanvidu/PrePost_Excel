@@ -24,6 +24,7 @@ BANNER_FILL = "FF1F2933"
 BANNER_TEXT = "FFFFFFFF"
 ZONE_FILL = "FFE4E7EB"
 PRE_FILL = "FFDCEBDC"
+BEFORE_FILL = "FFE7E3F2"
 POST_FILL = "FFF6E7DC"
 PLACEHOLDER_FILL = "FFFAFBFC"
 MISSING_FILL = "FFFDF3F3"
@@ -36,6 +37,26 @@ PREPOST_FONT = Font(name="Calibri", size=10, bold=True, color=INK)
 HEADING_FONT = Font(name="Calibri", size=10, bold=True, color=MUTED)
 PLACEHOLDER_FONT = Font(name="Calibri", size=9, italic=True, color=FAINT)
 MISSING_FONT = Font(name="Calibri", size=9, italic=True, color="FFB04A4A")
+VALUES_HEADER_FONT = Font(name="Calibri", size=11, bold=True, color=INK)
+
+# Header fill for each band, by the slot kind it holds.  The text itself is
+# layout.BAND_LABELS, so the sheet, the preview and the browser all agree.
+BAND_FILL = {"pre": PRE_FILL, "before": BEFORE_FILL, "post": POST_FILL}
+
+# The Values sheet, which the field team fills in beside the photos.  Its row
+# labels are worded differently from the photo headings ("850 E Tilt", not
+# "850 Tilt"; "Antenna Azimuth", not "Antenna Azimuth Photo"), so they are kept
+# separate rather than derived from catalog.DISPLAY_NAMES.
+VALUES_SHEET_TITLE = "Values"
+VALUES_ROWS = [
+    "Sec {sector}_ 850 E Tilt",
+    "Sec {sector}_ 900 E Tilt",
+    "Sec {sector}_ 1800 E Tilt 1",
+    "Sec {sector}_ 1800 E Tilt 2",
+    "Sec {sector}_ 2100 E Tilt",
+    "Sec {sector} Antenna M Tilt",
+    "Sec {sector} Antenna Azimuth",
+]
 
 CENTRE = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT = Alignment(horizontal="left", vertical="center")
@@ -57,6 +78,15 @@ class BuildResult:
     missing_slots: list[str]
     failures: list[tuple[Path, str]]
     rows: int
+
+
+def _subtitle(sheet_layout: layout.SheetLayout) -> str:
+    """The line under the title, naming the bands a person has to fill in."""
+    joined = " and ".join(sheet_layout.filled_by_hand)
+    return (
+        "Pre photos placed automatically from the field survey. "
+        f"{joined} photos are pasted into the dashed boxes by hand."
+    )
 
 
 def _ref(col0: int, row: int, cols: int = 1, rows: int = 1) -> str:
@@ -125,7 +155,7 @@ def _apply_dimensions(ws, plan: SheetPlan) -> None:
     """Fix every column width and the default row height."""
     ws.sheet_format.defaultRowHeight = layout.px_to_row_height(layout.ROW_PX)
     ws.sheet_format.customHeight = True
-    for col0, px in layout.column_widths().items():
+    for col0, px in plan.sheet_layout.column_widths().items():
         ws.column_dimensions[get_column_letter(col0 + 1)].width = (
             layout.px_to_col_width(px)
         )
@@ -169,6 +199,48 @@ def _write_slot(ws, slot: SlotPlan, preparer: ImagePreparer) -> bool:
     return True
 
 
+def values_columns(sheet_layout: layout.SheetLayout) -> tuple[str | None, ...]:
+    """Header row of the Values sheet, which follows the template's bands.
+
+    The label column carries no header, and ``Plan`` closes the row whichever
+    template is in use.
+    """
+    return ("sector", None) + sheet_layout.labels + ("Plan",)
+
+
+def _write_values_sheet(wb, plan: SheetPlan) -> None:
+    """Add the Values sheet: one row per sector per measured quantity.
+
+    Only the scaffold is written.  The readings themselves come off instruments
+    in the field, not out of the photographs, so every value cell is left empty
+    for the engineer to fill in.
+    """
+    ws = wb.create_sheet(VALUES_SHEET_TITLE)
+    columns = values_columns(plan.sheet_layout)
+    for index, heading in enumerate(columns, start=1):
+        if heading is None:
+            continue                      # the label column carries no header
+        cell = ws.cell(row=1, column=index)
+        cell.value = heading
+        cell.font = VALUES_HEADER_FONT
+
+    row = 2
+    for sector in plan.sectors:
+        for template in VALUES_ROWS:
+            ws.cell(row=row, column=1).value = f"sec{sector.number}"
+            ws.cell(row=row, column=2).value = template.format(
+                sector=sector.number
+            )
+            row += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 25
+    for index in range(3, len(columns) + 1):
+        ws.column_dimensions[get_column_letter(index)].width = 14
+    # The column after the last one is free for remarks.
+    ws.column_dimensions[get_column_letter(len(columns) + 1)].width = 62
+
+
 def write_workbook(
     plan: SheetPlan, out_path: Path, preparer: ImagePreparer,
     unplaced: dict[str, int] | None = None,
@@ -180,15 +252,14 @@ def write_workbook(
     ws.sheet_view.zoomScale = 70
     _apply_dimensions(ws, plan)
 
-    span = layout.LAST_COL - layout.MARGIN_LEFT + 1
+    span = plan.sheet_layout.last_col - layout.MARGIN_LEFT + 1
     _write_merged(
         ws, layout.MARGIN_LEFT, plan.title_row, span,
         f"{plan.site} — Antenna Audit Photos", TITLE_FONT, alignment=LEFT,
     )
     _write_merged(
         ws, layout.MARGIN_LEFT, plan.subtitle_row, span,
-        "Pre photos placed automatically from the field survey. "
-        "Post photos are pasted into the dashed boxes by hand.",
+        _subtitle(plan.sheet_layout),
         SUBTITLE_FONT, alignment=LEFT,
     )
 
@@ -206,17 +277,15 @@ def write_workbook(
                 ws, zone.pre_col0, sector.zone_header_row, zone_cols,
                 zone.title, ZONE_FONT, fill=ZONE_FILL,
             )
-            _write_merged(
-                ws, zone.pre_col0, sector.prepost_header_row, layout.BOX_COLS,
-                "Pre", PREPOST_FONT, fill=PRE_FILL,
-            )
-            _write_merged(
-                ws, zone.post_col0, sector.prepost_header_row, layout.BOX_COLS,
-                "Post", PREPOST_FONT, fill=POST_FILL,
-            )
+            for kind in zone.kinds:
+                _write_merged(
+                    ws, zone.col0_for(kind), sector.prepost_header_row,
+                    layout.BOX_COLS, layout.BAND_LABELS[kind], PREPOST_FONT,
+                    fill=BAND_FILL[kind],
+                )
 
             for category in zone.categories:
-                for col0 in (category.heading_col, category.heading_post_col):
+                for col0 in category.heading_cols:
                     _write_merged(
                         ws, col0, category.heading_row, layout.BOX_COLS,
                         category.heading, HEADING_FONT, alignment=LEFT,
@@ -224,6 +293,8 @@ def write_workbook(
                 for slot in category.slots:
                     if _write_slot(ws, slot, preparer):
                         placed += 1
+
+    _write_values_sheet(wb, plan)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out_path)

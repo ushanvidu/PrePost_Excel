@@ -38,8 +38,14 @@ HEADING_TO_TOKEN = {
 }
 LEFT_TOKENS = {"850_Tilt", "900_Tilt", "1800_Tilt_1", "1800_Tilt_2", "2100_Tilt"}
 # Column index -> which half of the sheet the Pre band belongs to.
-PRE_BANDS = {1: "left", 17: "right"}
-POST_BANDS = {9, 25}
+# Column bands per template, worked out here from first principles rather than
+# imported, so this stays an independent check.  Manual carries three bands per
+# zone, AR two; the same column therefore means different things in each, which
+# is why the template is detected per workbook below.
+MANUAL_PRE_BANDS = {1: "left", 25: "right"}
+MANUAL_DROP_BANDS = {9: "Before Swap", 17: "Post", 33: "Before Swap", 41: "Post"}
+AR_PRE_BANDS = {1: "left", 17: "right"}
+AR_DROP_BANDS = {9: "Post", 25: "Post"}
 # Mean squared difference below which two 32x32 normalised thumbnails are the
 # same photograph.  Comfortably above JPEG re-encoding noise, far below the
 # distance between two different photographs.
@@ -93,6 +99,7 @@ def verify(images_root: Path, output_dir: Path) -> int:
         }
 
         headings = []
+        three_band = False
         sheet = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
         for row in sheet.findall(f".//{{{NS['m']}}}row"):
             row_number = int(row.get("r"))
@@ -101,8 +108,17 @@ def verify(images_root: Path, output_dir: Path) -> int:
                     continue
                 text = cell.find(f"{{{NS['m']}}}is/{{{NS['m']}}}t")
                 value = text.text if text is not None else None
-                if value and value.startswith("Sec ") and not value.startswith("Sector"):
+                if not value:
+                    continue
+                if value.strip() == "Before Swap":
+                    three_band = True
+                elif value.startswith("Sec ") and not value.startswith("Sector"):
                     headings.append((row_number, column_index(cell.get("r")), value))
+
+        # Which template this workbook was built to decides what every column
+        # means, so it is settled before a single anchor is looked at.
+        pre_bands = MANUAL_PRE_BANDS if three_band else AR_PRE_BANDS
+        drop_bands = MANUAL_DROP_BANDS if three_band else AR_DROP_BANDS
 
         for anchor in ET.fromstring(zf.read("xl/drawings/drawing1.xml")):
             blip = anchor.find(".//{*}blip")
@@ -117,8 +133,11 @@ def verify(images_root: Path, output_dir: Path) -> int:
             col = int(marker.find("xdr:col", NS).text)
             row_number = int(marker.find("xdr:row", NS).text) + 1
 
-            if col in POST_BANDS:
-                problems.append(f"{site}: a picture sits in a Post band at row {row_number}")
+            if col in drop_bands:
+                problems.append(
+                    f"{site}: a picture sits in a {drop_bands[col]} band "
+                    f"at row {row_number}"
+                )
                 continue
 
             above = [h for h in headings if h[1] == col and h[0] < row_number]
@@ -138,7 +157,7 @@ def verify(images_root: Path, output_dir: Path) -> int:
                 continue
 
             expected_half = "left" if token in LEFT_TOKENS else "right"
-            if PRE_BANDS.get(col) != expected_half:
+            if pre_bands.get(col) != expected_half:
                 problems.append(f"{site}: {heading!r} is not in the {expected_half} half")
 
             # Every source photo whose pixels match; duplicates under different

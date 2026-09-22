@@ -75,6 +75,21 @@
     border-radius: 999px; padding: 3px 11px; font-size: 12.5px; margin: 3px 4px 0 0;
     font-weight: 600;
   }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px;
+         overflow: hidden; }
+  .seg button {
+    border: 0; background: var(--bg); color: var(--muted); font: inherit;
+    font-size: 12.5px; font-weight: 600; padding: 5px 13px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .site-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-top: 1px solid var(--line);
+  }
+  .site-row:first-of-type { border-top: 0; }
+  .site-row .name { flex: 1; font-weight: 600; font-size: 13.5px; }
+  .site-row .meta { font-size: 12px; }
   .bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 4px 0 18px; }
   .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
   .site {
@@ -133,7 +148,8 @@
       <label class="field" style="margin-top:18px">Post photos <span style="color:var(--faint)">— optional, one folder per site, each holding S1, S2, …</span></label>
       <div id="drop-post">
         <h2>Drop your Post photo folders here</h2>
-        <p>Leave this empty to get a sheet with blank Post boxes to fill in by hand.</p>
+        <p>Leave this empty to get a sheet with blank Post boxes to fill in by hand.
+           The Before Swap column is always left blank for you to paste into.</p>
       </div>
       <input id="picker-post" type="file" webkitdirectory directory multiple class="hidden">
       <div class="queue" id="queue-post"></div>
@@ -170,8 +186,20 @@
             <option value="0">Full resolution — very large files</option>
           </select>
         </div>
+        <div style="flex:0 0 auto">
+          <label class="field">Template for every site</label>
+          <div class="seg" id="default-template">
+            {% for t in templates %}
+            <button type="button" data-template="{{ t.name }}"
+                    aria-pressed="{{ 'true' if t.name == default_template else 'false' }}"
+                    title="{{ t.hint }}">{{ t.label }}</button>
+            {% endfor %}
+          </div>
+        </div>
         <button class="btn" id="go" disabled>Build workbooks</button>
       </div>
+      <p class="hint" id="template-hint" style="margin-top:10px"></p>
+      <div id="site-templates"></div>
     </div>
   </div>
 
@@ -209,6 +237,11 @@ async function readJson(res) {
 }
 
 let mode = 'upload';
+const TEMPLATES = {{ templates | tojson }};
+let defaultTemplate = {{ default_template | tojson }};
+let siteTemplates = new Map();   // site name -> template name (an override only)
+let knownSites = [];             // sites we can offer a per-site choice for
+
 let picked = new Map();       // Pre:  site name -> File[]
 let pickedPost = new Map();   // Post: "site/sector" -> File[]
 let poll = null;
@@ -221,6 +254,9 @@ document.querySelectorAll('.tab').forEach(tab => {
       t.setAttribute('aria-selected', String(t === tab)));
     $('#pane-upload').classList.toggle('hidden', mode !== 'upload');
     $('#pane-local').classList.toggle('hidden', mode !== 'local');
+    // The site list differs between the two ways in, so rebuild it on a switch.
+    if (mode === 'upload') setKnownSites([...picked.keys()]);
+    else lookupLocalSites();
     refreshGo();
   };
 });
@@ -266,19 +302,110 @@ function addFiles(files) {
 
 function renderQueue() {
   const q = $('#queue');
-  if (!picked.size) { q.innerHTML = ''; refreshGo(); return; }
+  if (!picked.size) { q.innerHTML = ''; setKnownSites([]); refreshGo(); return; }
   const total = [...picked.values()].reduce((n, f) => n + f.length, 0);
   q.innerHTML = `<div style="margin-bottom:6px">
       <strong>${picked.size}</strong> folder${picked.size > 1 ? 's' : ''} ready
       · ${total} photos</div>` +
     [...picked.entries()].sort()
       .map(([s, f]) => `<span class="chip">${esc(s)} · ${f.length}</span>`).join('');
+  setKnownSites([...picked.keys()]);
   refreshGo();
 }
 
 function refreshGo() {
   $('#go').disabled = mode === 'upload' ? picked.size === 0 : false;
 }
+
+/* ---------- which template each site is built to ---------- */
+// Shown on a finished card so the template a site was built to is on the record.
+function templateLabel(name) {
+  const found = TEMPLATES.find(t => t.name === name);
+  return found ? `${found.label} · ` : '';
+}
+
+function templateFor(site) {
+  return siteTemplates.get(site) || defaultTemplate;
+}
+
+// Only overrides travel to the server; the default covers everything else.
+function templatePayload() {
+  const out = {};
+  for (const site of knownSites) out[site] = templateFor(site);
+  return out;
+}
+
+function setDefaultTemplate(name) {
+  defaultTemplate = name;
+  // A per-site choice the user made stays put; the rest follow the default.
+  document.querySelectorAll('#default-template button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.template === name)));
+  renderSiteTemplates();
+}
+
+function renderSiteTemplates() {
+  const host = $('#site-templates');
+  const hint = $('#template-hint');
+  const chosen = TEMPLATES.find(t => t.name === defaultTemplate);
+  hint.textContent = chosen
+    ? `${chosen.label} — ${chosen.hint}. Override any single site below.`
+    : '';
+  if (!knownSites.length) { host.innerHTML = ''; return; }
+
+  host.innerHTML = knownSites.slice().sort().map(site => {
+    const current = templateFor(site);
+    const buttons = TEMPLATES.map(t =>
+      `<button type="button" data-site="${esc(site)}" data-template="${t.name}"
+               aria-pressed="${t.name === current}" title="${esc(t.hint)}"
+       >${esc(t.label)}</button>`).join('');
+    const overridden = siteTemplates.has(site)
+      ? '<span class="meta">overridden</span>' : '';
+    return `<div class="site-row"><span class="name">${esc(site)}</span>
+              ${overridden}<span class="seg">${buttons}</span></div>`;
+  }).join('');
+
+  host.querySelectorAll('button').forEach(button => {
+    button.onclick = () => {
+      const { site, template } = button.dataset;
+      if (template === defaultTemplate) siteTemplates.delete(site);
+      else siteTemplates.set(site, template);
+      renderSiteTemplates();
+    };
+  });
+}
+
+function setKnownSites(sites) {
+  knownSites = [...new Set(sites)];
+  // Drop overrides for sites that are no longer in the queue.
+  for (const site of [...siteTemplates.keys()])
+    if (!knownSites.includes(site)) siteTemplates.delete(site);
+  renderSiteTemplates();
+}
+
+document.querySelectorAll('#default-template button').forEach(button => {
+  button.onclick = () => setDefaultTemplate(button.dataset.template);
+});
+renderSiteTemplates();
+
+/* Local mode: ask the server which site folders a path holds, so the same
+   per-site buttons are available when nothing is uploaded. */
+let lookupToken = 0;
+async function lookupLocalSites() {
+  const path = $('#path').value.trim();
+  const mine = ++lookupToken;
+  if (!path) { if (mode === 'local') setKnownSites([]); return; }
+  try {
+    const res = await fetch('/api/local-sites', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path }),
+    });
+    const data = await readJson(res);
+    if (mine !== lookupToken || mode !== 'local') return;   // a newer edit won
+    setKnownSites(res.ok ? (data.sites || []) : []);
+  } catch { if (mine === lookupToken) setKnownSites([]); }
+}
+$('#path').addEventListener('change', lookupLocalSites);
+$('#path').addEventListener('blur', lookupLocalSites);
 
 /* ---------- drag and drop (walks whole folder trees) ---------- */
 function wireDrop(zoneId, pickerId, handler) {
@@ -331,11 +458,13 @@ $('#go').onclick = async () => {
       res = await fetch('/api/build-local', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ path: $('#path').value,
-                               postPath: $('#postPath').value, maxDim }),
+                               postPath: $('#postPath').value, maxDim,
+                               templates: templatePayload() }),
       });
     } else {
       const body = new FormData();
       body.append('maxDim', maxDim);
+      body.append('templates', JSON.stringify(templatePayload()));
       for (const [site, files] of picked)
         for (const f of files) body.append('files', f, site + '/' + f.name);
       for (const [key, files] of pickedPost)
@@ -384,7 +513,7 @@ function card(s, id) {
   const size = s.sizeBytes ? ` · ${(s.sizeBytes / 1048576).toFixed(1)} MB` : '';
   let meta = '';
   if (s.state === 'done')
-    meta = `${s.sectors} sectors · ${s.photosPlaced} Pre` +
+    meta = templateLabel(s.template) + `${s.sectors} sectors · ${s.photosPlaced} Pre` +
            (s.postPlaced ? ` · ${s.postPlaced} Post` : '') + size;
   else if (s.state === 'building') meta = 'building…';
   else if (s.photosFound) meta = `${s.photosFound} photos found`;

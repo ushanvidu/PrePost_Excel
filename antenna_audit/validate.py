@@ -54,19 +54,19 @@ def check_plan(plan: SheetPlan) -> list[str]:
     for sector in plan.sectors:
         # Banner and header rows span the sheet, so a box that runs into one is
         # just as broken as two boxes that collide.  They must be in the set.
-        full_width = layout.LAST_COL + 1
+        full_width = plan.sheet_layout.last_col + 1
         for row, what in (
             (sector.banner_row, f"S{sector.number} banner"),
             (sector.zone_header_row, f"S{sector.number} zone header"),
-            (sector.prepost_header_row, f"S{sector.number} Pre/Post header"),
+            (sector.prepost_header_row, f"S{sector.number} band header"),
         ):
             boxes.append(((0, row, full_width, 1), what))
 
         for zone in (sector.left, sector.right):
             for category in zone.categories:
-                # The heading itself occupies a row in both the Pre and Post
-                # bands; a box must never be drawn over it.
-                for col0 in (category.heading_col, category.heading_post_col):
+                # The heading itself occupies a row in every band; a box must
+                # never be drawn over it.
+                for col0 in category.heading_cols:
                     boxes.append((
                         (col0, category.heading_row, layout.BOX_COLS, 1),
                         f"S{sector.number} heading '{category.heading}'",
@@ -79,9 +79,7 @@ def check_plan(plan: SheetPlan) -> list[str]:
                     )
                     boxes.append(((box.col0, box.row0, box.cols, box.rows), label))
 
-                    expected = (
-                        zone.pre_col0 if slot.kind == "pre" else zone.post_col0
-                    )
+                    expected = zone.col0_for(slot.kind)
                     if box.col0 != expected:
                         errors.append(
                             f"{label}: column {box.col0}, expected {expected}"

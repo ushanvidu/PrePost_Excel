@@ -36,9 +36,24 @@ def full_sector() -> dict[str, int]:
     return {c: 1 for c in ELECTRICAL_TILT_CATEGORIES + MECHANICAL_AZIMUTH_CATEGORIES}
 
 
-def test_nothing_overlaps_in_a_complete_site():
-    plan = build_plan(make_inventory({1: full_sector(), 2: full_sector()}))
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_nothing_overlaps_in_a_complete_site(sheet_layout):
+    plan = build_plan(make_inventory({1: full_sector(), 2: full_sector()}),
+                      sheet_layout=sheet_layout)
     assert check_plan(plan) == []
+
+
+def test_the_ar_template_has_no_before_swap_slot():
+    plan = build_plan(make_inventory({1: full_sector()}), sheet_layout=layout.AR)
+    kinds = {
+        slot.kind
+        for sector in plan.sectors
+        for zone in (sector.left, sector.right)
+        for category in zone.categories
+        for slot in category.slots
+    }
+    assert kinds == {"pre", "post"}
 
 
 def test_nothing_overlaps_when_categories_are_missing():
@@ -64,30 +79,53 @@ def test_missing_category_still_gets_a_slot():
     assert len(plan.missing_slots) == 4 + len(MECHANICAL_AZIMUTH_CATEGORIES)
 
 
-def test_pre_and_post_boxes_are_aligned_and_same_height():
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_every_band_is_aligned_and_the_same_height(sheet_layout):
     plan = build_plan(make_inventory({1: full_sector(), 2: {c: 3 for c in
-                                      ELECTRICAL_TILT_CATEGORIES}}))
+                                      ELECTRICAL_TILT_CATEGORIES}}),
+                      sheet_layout=sheet_layout)
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
+            assert zone.kinds == sheet_layout.kinds
             for category in zone.categories:
-                pres = [s for s in category.slots if s.kind == "pre"]
-                posts = [s for s in category.slots if s.kind == "post"]
-                assert len(pres) == len(posts)
-                for pre, post in zip(pres, posts):
-                    assert pre.box.row0 == post.box.row0
-                    assert pre.box.rows == post.box.rows
-                    assert pre.box.col0 == zone.pre_col0
-                    assert post.box.col0 == zone.post_col0
+                rows = [
+                    [s for s in category.slots if s.kind == kind]
+                    for kind in sheet_layout.kinds
+                ]
+                assert len({len(band) for band in rows}) == 1, "bands differ in length"
+                for slots in zip(*rows):
+                    pre = slots[0]
+                    for slot, kind in zip(slots, sheet_layout.kinds):
+                        assert slot.box.row0 == pre.box.row0
+                        assert slot.box.rows == pre.box.rows
+                        assert slot.box.col0 == zone.col0_for(kind)
 
 
-def test_post_boxes_never_hold_a_photo():
-    plan = build_plan(make_inventory({1: full_sector()}))
+@pytest.mark.parametrize("sheet_layout", [layout.MANUAL, layout.AR],
+                         ids=lambda t: t.name)
+def test_drop_box_bands_never_hold_a_photo(sheet_layout):
+    plan = build_plan(make_inventory({1: full_sector()}),
+                      sheet_layout=sheet_layout)
     for sector in plan.sectors:
         for zone in (sector.left, sector.right):
             for category in zone.categories:
                 for slot in category.slots:
-                    if slot.kind == "post":
+                    if slot.kind in ("before", "post"):
                         assert slot.photo is None
+
+
+def test_before_swap_is_never_filled_even_when_post_photos_are_supplied():
+    """The survey has no Before Swap round, so that band stays a drop box."""
+    plan = build_plan(
+        make_inventory({1: full_sector()}),
+        post_photos={(1, "850_Tilt"): [Path("/post/a.jpg")]},
+    )
+    category = next(c for c in plan.sectors[0].left.categories
+                    if c.category == "850_Tilt")
+    by_kind = {s.kind: s for s in category.slots}
+    assert by_kind["post"].photo is not None, "the Post band should take it"
+    assert by_kind["before"].photo is None
 
 
 def test_every_photo_sits_below_its_heading():
